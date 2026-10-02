@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Gloam Below</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- Title screen -->
+  <section id="scr-title" class="screen" hidden>
+    <div class="title-box">
+      <h1 class="logo">THE GLOAM BELOW</h1>
+      <p class="tagline">A short descent through seven lightless floors.</p>
+      <div class="menu" id="title-menu"></div>
+      <p class="notice" id="title-notice"></p>
+      <p class="fine">Turn-based. Offline. Original. Press a highlighted letter or use Tab and Enter.</p>
+    </div>
+  </section>
+
+  <!-- Party creation -->
+  <section id="scr-create" class="screen" hidden>
+    <div class="create-box">
+      <h2 id="create-title">Assemble the Party</h2>
+      <div id="create-seed" class="create-seed"></div>
+      <div id="create-members" class="create-members"></div>
+      <div class="create-foot">
+        <button id="btn-add-member" type="button">+ Add member</button>
+        <span class="spacer"></span>
+        <button id="btn-create-back" type="button">Back</button>
+        <button id="btn-create-go" type="button" class="primary">Descend</button>
+      </div>
+      <p class="fine" id="create-hint">Creation order sets formation: member 1 starts in the front rank. Any mix of classes works.</p>
+    </div>
+  </section>
+
+  <!-- Main game -->
+  <section id="scr-game" class="screen" hidden>
+    <header id="hud">
+      <span class="hud-title">THE GLOAM BELOW</span>
+      <span id="hud-floor" class="hud-chip"></span>
+      <span id="hud-objective" class="hud-obj" tabindex="0"></span>
+      <span class="spacer"></span>
+      <span id="hud-seed" class="hud-chip small"></span>
+      <button id="btn-help" type="button" title="Help and controls (H or ?)">Help</button>
+      <button id="btn-export" type="button" title="Download this run as a JSON file">Export</button>
+      <button id="btn-sound" type="button" title="Toggle sound (muted by default)">Sound: off</button>
+      <button id="btn-menu" type="button" title="Return to the title screen (the run is autosaved)">Menu</button>
+    </header>
+    <main id="main">
+      <div id="map-wrap">
+        <canvas id="map" width="960" height="624" aria-label="Dungeon map"></canvas>
+        <div id="banner" class="banner" hidden></div>
+      </div>
+      <aside id="side">
+        <div id="party" class="panel"></div>
+        <div id="actions" class="panel"></div>
+        <div id="gear" class="panel"></div>
+      </aside>
+    </main>
+    <footer id="foot">
+      <div id="log" class="panel" aria-live="polite"></div>
+      <div id="info" class="panel"></div>
+    </footer>
+  </section>
+
+  <!-- Run end -->
+  <section id="scr-end" class="screen" hidden>
+    <div class="end-box">
+      <h2 id="end-title"></h2>
+      <p id="end-sub" class="tagline"></p>
+      <div id="end-stats" class="end-stats"></div>
+      <div class="menu" id="end-menu"></div>
+    </div>
+  </section>
+
+  <!-- Modal layer (help, level-up, item choices) -->
+  <div id="modal" class="modal" hidden>
+    <div id="modal-box" class="modal-box" role="dialog" aria-modal="true"></div>
+  </div>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <input type="file" id="file-import" accept=".json,application/json" hidden>
+</div>
+<script src="logic.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
