@@ -338,13 +338,48 @@
     whet: { name: "Whetstone Altar", desc: "One use. Each party member permanently gains +1 to their main stat (Power or Will)." },
     bargain: { name: "Shrine of Dubious Bargains", desc: "One use. Each conscious member loses a quarter of their current HP; the shrine pays in a magic or rare item." }
   };
+  // Room flavour. Mostly grim; about one in ten is a sly, misremembered nod to 1980s geek culture.
+  var ROOM_NAMES = {
+    ossuary: [["The Sorted", "The Listening", "The Swept", "The Nameless"], ["Charnel", "Vault", "Gallery", "Niche-Hall"]],
+    cistern: [["The Dripping", "The Warm", "The Chained", "The Sunken"], ["Basin", "Sluice", "Reservoir", "Culvert"]],
+    foundry: [["The Cracked", "The Breathing", "The Guilty", "The Cooling"], ["Forge", "Casting Pit", "Slag Hall", "Bellworks"]],
+    chapel: [["The Backward", "The Unlit", "The Waiting", "The Blinded"], ["Nave", "Chantry", "Vestry", "Choir"]]
+  };
+  var ROOM_TEXT = {
+    ossuary: ["Skulls are stacked by size, then by expression.", "The bones here are arranged as if listening.", "A chapel of femurs. Someone keeps it swept.",
+      "Every plaque has had its name chiselled away.", "Dust, and under the dust, footprints that only go one way."],
+    cistern: ["Black water laps at the stone, though nothing stirs it.", "The ceiling weeps. The puddles are warm.", "Rusted chains hang into the water and go taut, now and then.",
+      "A drowned bell rings once beneath your feet.", "Pale lights swim in the murk and vanish when watched."],
+    foundry: ["Moulds for bells, each cracked on purpose.", "The anvils are warm. No one is working them.", "Slag has cooled into the shapes of hands.",
+      "A furnace breathes in time with you.", "Hammers hang on hooks, sorted by guilt."],
+    chapel: ["The pews face the back wall.", "Candles burn with a purple flame that sheds no light.", "Hymnals with every line blacked out.",
+      "An altar cloth embroidered with a closed eye.", "A confessional booth. Something inside is waiting its turn."]
+  };
+  var ROOM_NODS = [
+    "A sign reads BEWARE THE RABBIT. Beneath, smaller: no, the other one.",
+    "Two coconut halves lie here, clapped together until they cracked. There is no horse.",
+    "Scratched in the stone: 'only a flesh scratch.' The author is a skeleton now.",
+    "Someone has tallied swallows by continent. The column marked 'unladen' is blank.",
+    "A potted shrubbery, and frankly not a very nice one.",
+    "Charcoal on the wall: 'I do love it when a scheme assembles itself.' Below it, four sets of boot prints and a welding scar.",
+    "A plaque in gilt letters: IT IS GOOD TO BE THE WARDEN.",
+    "An arrow painted on the floor and the words: SHAMBLE THIS WAY.",
+    "A dead arcade cabinet, its marquee still recruiting defenders for a frontier of stars.",
+    "A helmet three sizes too large, visor stuck halfway. It smells of ambition.",
+    "A neat notice: LUDICROUS PACE IS FORBIDDEN IN THE CORRIDORS.",
+    "A note: DO NOT FEED THE SMALL ONES AFTER THE BELL. The bell is missing.",
+    "Chalked beside a sealed hatch: XYZZY. Nothing happens.",
+    "A patient voice in the stonework asks if you would like to play a nice game. You decline.",
+    "A ring of standing stones, knee high, labelled 'not to scale'.",
+    "Eleven candles in a row. The last is set a little higher than the rest."
+  ];
   var RELICS = ["the Saint's Tooth", "the Drowned Key", "the Brass Heart", "the Lamp of Orrin", "the Ninth Bell's Tongue", "the Glass Psalter"];
 
   // ------------------------------------------------------------------
   // Name generation (original syllables; deterministic per seed, slot and reroll count)
   // ------------------------------------------------------------------
   var NAME_A = ["Al", "Bran", "Cor", "Dag", "Ev", "Fen", "Gar", "Hes", "Il", "Jor", "Kael", "Lis", "Mor", "Nell", "Os", "Pell", "Quen", "Ros", "Sef", "Tam", "Ul", "Ves", "Wen", "Yor"];
-  var NAME_B = ["ric", "wyn", "do", "na", "ett", "wick", "row", "per", "se", "ey", "an", "ka", "ven", "is", "mund", "ara", "tch", "elm", "ith", "orn", "a", "ble"];
+  var NAME_B = ["ric", "wyn", "do", "na", "ett", "wick", "row", "per", "se", "ey", "an", "ka", "ven", "is", "mund", "ara", "wen", "elm", "ith", "orn", "a", "ble"];
   function suggestName(seed, slot, n) {
     var s = makeStream(streamKey(seed, "names", slot + "|" + n));
     var nm = rpick(s, NAME_A) + rpick(s, NAME_B);
@@ -723,7 +758,15 @@
     }
     var st0 = freeTile(startR);
     if (st0 && n > 1) f.items.push({ x: st0.x, y: st0.y, item: { base: "draught", rarity: "common", affixes: [] } });
-    f.rooms = rooms.map(function (r, i) { return { x: r.x, y: r.y, w: r.w, h: r.h, start: i === startRoom }; });
+    f.rooms = rooms.map(function (r, i) {
+      var out = { x: r.x, y: r.y, w: r.w, h: r.h, start: i === startRoom };
+      if (i !== startRoom && rchance(s, 0.35)) {
+        var nm = ROOM_NAMES[themeId];
+        out.name = rpick(s, nm[0]) + " " + rpick(s, nm[1]);
+        out.text = rchance(s, 0.1) ? rpick(s, ROOM_NODS) : rpick(s, ROOM_TEXT[themeId]);
+      }
+      return out;
+    });
     return f;
   }
 
@@ -934,7 +977,11 @@
     var size = state.party.length;
     var seen = []; for (var y = 0; y < MAP_H; y++) seen.push(new Array(MAP_W + 1).join("0"));
     var f = { num: n, theme: def.theme, w: def.w, h: def.h, tiles: def.tiles.slice(), polar: def.polar.slice(), seen: seen,
-      rooms: def.rooms.map(function (r) { return { x: r.x, y: r.y, w: r.w, h: r.h, visited: !!r.start }; }),
+      rooms: def.rooms.map(function (r) {
+        var rm = { x: r.x, y: r.y, w: r.w, h: r.h, visited: !!r.start };
+        if (r.text) { rm.name = r.name; rm.text = r.text; }
+        return rm;
+      }),
       stairs: def.stairs ? { x: def.stairs.x, y: def.stairs.y } : null, objective: JSON.parse(JSON.stringify(def.objective)),
       enemies: [], items: [], features: [], noticed: [] };
     state.floor = f;
@@ -1197,8 +1244,8 @@
     }
     if (state.flags.godMode) amount = 0;
     if (amount <= 0) return 0;
+    state.stats.dmgTaken += Math.min(amount, c.hp);
     c.hp -= amount;
-    state.stats.dmgTaken += amount;
     emit("hurt", { who: c.id, amount: amount });
     if (c.hp <= 0) {
       c.hp = 0; c.down = true; c.st = {};
@@ -2799,11 +2846,15 @@
     if (f.theme !== def.theme) v.fail("floor.theme", "does not match the seed");
     for (var y = 0; y < MAP_H; y++) if (f.tiles[y].replace(/B/g, "b") !== def.tiles[y]) { v.fail("floor.tiles", "layout does not match the seed and generator"); break; }
     if (JSON.stringify(f.stairs) !== JSON.stringify(def.stairs)) v.fail("floor.stairs", "does not match the seed");
-    if (v.arr(f.rooms, "floor.rooms", 40)) f.rooms.forEach(function (rm, i) {
-      if (v.obj(rm, "floor.rooms[" + i + "]", ["x", "y", "w", "h", "visited"], ["x", "y", "w", "h", "visited"])) {
-        v.int(rm.x, "room.x", 0, MAP_W); v.int(rm.y, "room.y", 0, MAP_H); v.int(rm.w, "room.w", 1, MAP_W); v.int(rm.h, "room.h", 1, MAP_H); v.bool(rm.visited, "room.visited");
-      }
-    });
+    if (v.arr(f.rooms, "floor.rooms", 40)) {
+      if (f.rooms.length !== def.rooms.length) v.fail("floor.rooms", "do not match the seed");
+      f.rooms.forEach(function (rm, i) {
+        if (!v.obj(rm, "floor.rooms[" + i + "]", ["x", "y", "w", "h", "visited", "name", "text"], ["x", "y", "w", "h", "visited"])) return;
+        v.bool(rm.visited, "floor.rooms[" + i + "].visited");
+        var d = def.rooms[i] || {};
+        if (rm.x !== d.x || rm.y !== d.y || rm.w !== d.w || rm.h !== d.h || rm.name !== d.name || rm.text !== d.text) v.fail("floor.rooms[" + i + "]", "does not match the seed");
+      });
+    }
     var ob = f.objective;
     if (v.obj(ob, "floor.objective", ["type", "done", "carried", "name"], ["type", "done"])) {
       if (ob.type !== def.objective.type) v.fail("floor.objective.type", "does not match the seed");

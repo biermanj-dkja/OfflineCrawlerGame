@@ -325,7 +325,7 @@
       var nextXp = G.XP_TABLE[c.level];
       info.appendChild(el("span", "", "XP " + c.xp + (nextXp ? "/" + nextXp : "")));
       info.appendChild(el("span", "", "Arm " + st.arm + " Eva " + st.eva));
-      G.statusText(c.st).forEach(function (t) { info.appendChild(el("span", "tag", t)); });
+      G.statusText(c.st).forEach(function (t) { var tg = el("span", "tag", t); tg.dataset.tip = statusTip(t); info.appendChild(tg); });
       if (!inCombat && state.party.length > 1) {
         var ro = el("span", "reorder");
         var up = button("▲", function (ev) { ev.stopPropagation(); doAct({ type: "reorder", from: i, to: i - 1 }); ui.sel = Math.max(0, i - 1); renderGame(); }, "", "Move up in formation");
@@ -351,6 +351,10 @@
       p.appendChild(card);
     });
   }
+  var STATUS_TIPS = { Stunned: "Loses its next turn(s).", Rooted: "Cannot move, can still attack.", Blinded: "-40 accuracy.", Hexed: "Takes +50% damage, deals 30% less.",
+    Shrouded: "+2 armour from a Murk Acolyte.", Burning: "Takes damage at the start of each of its turns.", Taunted: "Must attack the taunting Sentinel.",
+    Guarding: "+3 armour; intercepts single-target attacks on the back rank until the next party phase.", Braced: "+2 armour.", Ward: "Absorbs incoming damage.", Fading: "+25 evasion until the next party phase." };
+  function statusTip(t) { var k = t.split(/[ \/]/)[0]; return STATUS_TIPS[k] || t; }
   function partyClick(i) {
     var c = state.party[i];
     if (ui.tgt && (ui.tgt.kind === "ally" || ui.tgt.kind === "downed")) {
@@ -405,6 +409,13 @@
     var mv = button(inCombat ? (state.combat.moved ? "Move: used" : "Move: ready") : "Move: free", function () { flashInfo(inCombat ? "Use WASD/arrows or click an adjacent tile to move the party (uses this character's action)." : "Use WASD/arrows, the numpad, or click a known tile."); }, "",
       "Shared Move: in combat the whole party moves one tile, once per party phase, using the acting character's action. Later characters act from the new tile.");
     util.appendChild(mv);
+    if (!inCombat) {
+      var ex = button(ui.travel && ui.travel.kind === "explore" ? "Exploring... (E)" : "Explore (E)", function () { startTravel({ kind: "explore" }); }, ui.travel && ui.travel.kind === "explore" ? "on" : "",
+        "Auto-Explore: walk toward the nearest unexplored ground one tile at a time. Stops when anything new appears. Avoids known hazards and sleeping foes' wake radius.");
+      var tr = button(ui.travel && ui.travel.kind === "travel" ? "Travelling... (G)" : "Travel (G)", function () { startTravel({ kind: "travel" }); }, ui.travel && ui.travel.kind === "travel" ? "on" : "",
+        "Travel to the objective (or the open stairs) through known safe tiles only. Stops when anything new appears.");
+      util.appendChild(ex); util.appendChild(tr);
+    }
     util.appendChild(button("Rest (Space)", function () { stopTravel(); doAct({ type: "rest" }); }, "", inCombat ? "Skip this character's action." : "Wait one turn. Waiting never heals or restores charges."));
     var d = button("Descend (>)", function () { doAct({ type: "descend" }); }, G.canDescend(state) ? "primary" : "", "Descend when standing on open stairs. On descending: downed allies revive at 25% HP, others heal 25%, and abilities recover half their missing charges.");
     d.disabled = !G.canDescend(state);
@@ -533,7 +544,7 @@
     if (state.offer) { showOffer(); return; }
     if (ui.modal === "level" || ui.modal === "offer") closeModal();
   }
-  function openModal(kind) { ui.modal = kind; $("modal").hidden = false; }
+  function openModal(kind) { ui.modal = kind; $("modal").hidden = false; if (kind !== "help" || !$("modal-box").querySelector(".cols3")) $("modal-box").className = "modal-box"; }
   function closeModal() { $("modal").hidden = true; ui.modal = null; }
   function showLevelUp() {
     var q = state.levelQueue[0], c = state.party.filter(function (m) { return m.id === q.charId; })[0];
@@ -782,6 +793,7 @@
     if (!state) return null;
     var res = G.act(state, a);
     if (!res.ok && res.msg) flashInfo(res.msg);
+    soundFor(res.events);
     res.events.forEach(function (ev) {
       if (ev.type === "hit" && ev.data) ui.flashes.push({ x: ev.data.x, y: ev.data.y, c: "#ff4030", t: Date.now() });
       if (ev.type === "hurt") ui.flashes.push({ x: state.pos.x, y: state.pos.y, c: "#ff2020", t: Date.now() });
@@ -857,24 +869,71 @@
   }
   function cancelTarget() { ui.tgt = null; renderGame(); }
 
-  // Click-to-travel resolves one tile at a time and stops on new information.
-  function stopTravel() { if (ui.travel) { clearTimeout(ui.travel.timer); ui.travel = null; } }
-  function travelTo(x, y) {
-    stopTravel();
-    ui.travel = { kind: "click", x: x, y: y, timer: null };
+  // Click-to-travel, Auto-Explore (E) and Travel to Objective (G): one tile per tick, one world
+  // turn per tile, and any new information stops the walk immediately.
+  function stopTravel() { if (ui.travel) { clearTimeout(ui.travel.timer); ui.travel = null; renderActionsSafe(); } }
+  function renderActionsSafe() { if (state && ui.screen === "game") renderActions(); }
+  function travelTo(x, y) { startTravel({ kind: "click", x: x, y: y }); }
+  function startTravel(t) {
+    if (ui.travel) { var same = ui.travel.kind === t.kind && t.kind !== "click"; stopTravel(); if (same) return; }
+    if (!state || state.status !== "explore") { flashInfo(state && state.status === "combat" ? "Not during combat." : "Not now."); return; }
+    t.timer = null; t.steps = 0;
+    ui.travel = t;
     travelTick();
   }
   function travelTick() {
     var t = ui.travel;
     if (!t || !state || state.status !== "explore" || !$("modal").hidden) { stopTravel(); return; }
-    var step = G.stepTowardTile(state, t.x, t.y);
-    if (!step) { stopTravel(); return; }
-    var res = doAct({ type: "move", dx: step[0], dy: step[1] });
+    var dir;
+    if (t.kind === "click") dir = G.stepTowardTile(state, t.x, t.y);
+    else {
+      var plan = G.planStep(state, t.kind);
+      if (!plan.dir) { stopTravel(); flashInfo(plan.why); return; }
+      dir = plan.dir;
+    }
+    if (!dir) { stopTravel(); return; }
+    var res = doAct({ type: "move", dx: dir[0], dy: dir[1] });
+    t.steps++;
     if (!res || !res.ok || res.events.some(stopEvent)) { stopTravel(); return; }
     if (!ui.travel) return;
-    t.timer = setTimeout(travelTick, 45);
+    t.timer = setTimeout(travelTick, 40);
   }
-  function stopEvent(e) { return ["discover", "combat", "hurt", "offer", "levelup", "wake", "pickup", "descend"].indexOf(e.type) >= 0; }
+  function stopEvent(e) { return ["discover", "combat", "hurt", "offer", "levelup", "wake", "pickup", "descend", "telegraph", "objective", "shrine", "down", "victory", "defeat"].indexOf(e.type) >= 0; }
+
+  // ---------- Sound: tiny generated blips, muted by default ----------
+  var audio = { on: false, ctx: null };
+  function toggleSound() {
+    audio.on = !audio.on;
+    if (audio.on && !audio.ctx) {
+      try { var AC = window.AudioContext || window.webkitAudioContext; audio.ctx = AC ? new AC() : null; } catch (e) { audio.ctx = null; }
+    }
+    var b = $("btn-sound"); b.textContent = "Sound: " + (audio.on ? "on" : "off"); b.className = audio.on ? "on" : "";
+    b.setAttribute("aria-pressed", audio.on ? "true" : "false");
+    if (audio.on) blip(660, 0.06, "square");
+  }
+  function blip(freq, dur, type, slide) {
+    if (!audio.on || !audio.ctx) return;
+    try {
+      var c = audio.ctx, o = c.createOscillator(), g = c.createGain(), t0 = c.currentTime;
+      o.type = type || "square"; o.frequency.setValueAtTime(freq, t0);
+      if (slide) o.frequency.exponentialRampToValueAtTime(slide, t0 + dur);
+      g.gain.setValueAtTime(0.05, t0); g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+      o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+    } catch (e) { /* sound is optional */ }
+  }
+  function soundFor(events) {
+    var seen = {};
+    events.forEach(function (e) { seen[e.type] = 1; });
+    if (seen.victory) { blip(523, 0.12, "triangle"); setTimeout(function () { blip(784, 0.25, "triangle"); }, 120); return; }
+    if (seen.defeat || seen.down) { blip(220, 0.35, "sawtooth", 80); return; }
+    if (seen.combat) blip(180, 0.12, "square", 120);
+    else if (seen.kill) blip(320, 0.09, "square", 160);
+    else if (seen.hurt) blip(140, 0.08, "sawtooth");
+    else if (seen.hit) blip(420, 0.04, "square");
+    else if (seen.levelup) blip(880, 0.15, "triangle", 1320);
+    else if (seen.pickup || seen.heal) blip(760, 0.05, "triangle");
+    else if (seen.telegraph) blip(300, 0.15, "square", 600);
+  }
 
   // ---------- End screen ----------
   function renderEnd() {
@@ -883,10 +942,10 @@
     var t = $("end-title"); t.textContent = win ? "VICTORY" : "THE PARTY HAS FALLEN"; t.className = win ? "win" : "lose";
     $("end-sub").textContent = win ? state.story.boss + " is ended. You climb out of " + state.story.dungeon + " toward a morning you had stopped believing in." : "The dark of " + state.story.dungeon + " keeps what it takes. " + state.story.boss + " endures.";
     var s = $("end-stats"); clear(s);
-    [["Seed", (state.daily ? "Daily " : "") + state.seed], ["Floor reached", state.floor.num + " / " + G.LAST_FLOOR], ["Floors cleared", state.stats.floorsCleared],
-      ["Enemies slain", state.stats.kills], ["Damage dealt", state.stats.dmgDealt], ["Damage taken", state.stats.dmgTaken],
+    [["Run", (state.daily ? "Daily Dungeon " : "Seed ") + state.seed], ["Dungeon", state.story.dungeon], ["Floor reached", state.floor.num + " / " + G.LAST_FLOOR + " (" + G.floorTitle(state, state.floor.num) + ")"],
+      ["Objectives cleared", state.stats.floorsCleared], ["Enemies slain", state.stats.kills], ["Damage dealt", state.stats.dmgDealt], ["Damage taken", state.stats.dmgTaken],
       ["Items found", state.stats.itemsFound], ["Turns", state.stats.turns],
-      ["Party", state.party.map(function (c) { return c.name + " (" + G.CLASSES[c.cls].name + " L" + c.level + ")"; }).join(", ")]]
+      ["Party", state.party.map(function (c) { return c.name + " (" + G.CLASSES[c.cls].name + " L" + c.level + (c.down ? ", fallen" : "") + ")"; }).join(", ")]]
       .forEach(function (kv) { s.appendChild(el("span", "k", kv[0])); s.appendChild(el("span", "", kv[1])); });
     var m = $("end-menu"); clear(m);
     m.appendChild(menuButton("N", "New Game", function () { startCreate(false); }));
@@ -897,10 +956,51 @@
   }
 
   // ---------- Help ----------
+  var HELP = [
+    ["Controls", [
+      "Move: WASD or arrow keys; numpad for diagonals. Click a known tile to walk there one step at a time.",
+      "E: Auto-Explore. G: Travel to the objective or the open stairs. Both stop the moment anything new comes into view. Any key or Esc stops them.",
+      "F: basic attack (click a foe or Tab/Enter to choose). 1-6: abilities of the acting character. Space: rest / skip. >: descend.",
+      "Esc: cancel targeting or close a panel. H or ?: this help. Click a portrait to select who uses abilities and items outside combat."]],
+    ["Formation", [
+      "Portrait order is formation. Slot 1 is the FRONT rank (a lone hero is always front); slots 2-3 are the BACK rank.",
+      "Only the front rank makes ordinary melee attacks. Back-rank characters need a reach weapon (range 2), a ranged weapon or focus, a spell or an ability.",
+      "Enemy melee hits the front first; the back rank is reached only by ranged attacks, area effects and special attacks. If the front falls, the next conscious member steps up.",
+      "Reorder portraits (drag, or the arrows) outside combat only."]],
+    ["Combat", [
+      "Combat starts when an awake foe comes into view. Each round: the party phase (every conscious member acts once, in portrait order), then the enemy phase (foes act nearest first).",
+      "The shared Move moves the whole party one tile, uses the acting character's turn, and is allowed once per party phase. Later characters act from the new tile.",
+      "Hover a foe to read its intent. Red striped tiles are telegraphed danger (charges, novas, bursts, sweeps): step out of them.",
+      "Breaking line of sight does not freeze foes: the round ends and they close in. Combat ends when no awake foe is visible."]],
+    ["Health and charges", [
+      "After a fight each conscious member recovers 10% of max HP (at least 1), but this never raises anyone above half health (the tick on the HP bar).",
+      "Walking, waiting and resting never heal and never restore charges. Healing spells, draughts, shrines and descending can go above half.",
+      "Descending: the downed revive at 25% HP, everyone else heals 25%, and each ability regains half of its missing charges (rounded up).",
+      "There is no revival in combat. If everyone falls, the run ends."]],
+    ["Foes, light and objectives", [
+      "Sleeping foes (z) take no turns. They wake if you come within their wake radius, attack or damage them, or make noise within 6 tiles (Challenge, Lumen Flare, bombs).",
+      "Lit ground (dotted) weakens shadow-kin and the final foe; deep shadow (hatched) hides Lurkers and speeds Shades. Light spells and braziers make ground Lit.",
+      "Each floor's objective is shown at the top: reach the stairs, destroy the Spawning Gate, defeat the warden, or carry a relic to the stairs. The stairs stay sealed until it is done.",
+      "Spawning Gates birth grubs worth no XP. Kill the gate."]],
+    ["Items and saving", [
+      "One shared 16-slot inventory; equipped items take no slot. Walk over loot to pick it up. Rarity: Common (plain), Magic (+, double border), Rare (++, thick double), Unique (*, star/dashed).",
+      "Select an item to compare it for each character and equip it in one click. Every member gets the full XP of each kill.",
+      "The run autosaves in this browser when it can. Export downloads a portable JSON file; Import Run (title screen) restores it exactly, on any computer."]]
+  ];
   function openHelp() {
     var box = $("modal-box"); clear(box);
-    box.appendChild(el("h2", "", "Controls"));
-    box.appendChild(el("p", "", "WASD / arrows: move. Numpad: 8 directions. Click a known tile to travel. F: attack. 1-5: abilities. Space: rest. >: descend. Esc: cancel/close."));
+    box.appendChild(el("h2", "", "The Gloam Below - Help"));
+    box.className = "modal-box wide";
+    var cols = el("div", "cols3");
+    HELP.forEach(function (sec) {
+      var d = el("div");
+      d.appendChild(el("h3", "", sec[0]));
+      var ul = el("ul");
+      sec[1].forEach(function (line) { ul.appendChild(el("li", "", line)); });
+      d.appendChild(ul);
+      cols.appendChild(d);
+    });
+    box.appendChild(cols);
     var foot = el("div", "modal-foot"); foot.appendChild(button("Close (Esc)", closeModal, "primary")); box.appendChild(foot);
     openModal("help");
     foot.querySelector("button").focus();
@@ -936,6 +1036,7 @@
     }
     if (ui.screen !== "game" || !state) return;
     if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
+    if (ui.travel && ev.code !== "KeyE" && ev.code !== "KeyG") { stopTravel(); if (ev.key === "Escape") { ev.preventDefault(); return; } }
     if (ui.tgt) {
       if (ev.key === "Escape") { cancelTarget(); ev.preventDefault(); return; }
       if (ev.key === "Tab") { ui.tgt.i = (ui.tgt.i + (ev.shiftKey ? ui.tgt.list.length - 1 : 1)) % ui.tgt.list.length; renderGame(); ev.preventDefault(); return; }
@@ -947,7 +1048,9 @@
     }
     if (ev.code === "Space") { stopTravel(); ui.tgt = null; doAct({ type: "rest" }); ev.preventDefault(); return; }
     if (ev.key === ">" || (ev.code === "Period" && ev.shiftKey)) { doAct({ type: "descend" }); ev.preventDefault(); return; }
-    if (ev.code === "KeyF") { startAttack(); ev.preventDefault(); return; }
+    if (ev.code === "KeyF") { stopTravel(); startAttack(); ev.preventDefault(); return; }
+    if (ev.code === "KeyE") { startTravel({ kind: "explore" }); ev.preventDefault(); return; }
+    if (ev.code === "KeyG") { startTravel({ kind: "travel" }); ev.preventDefault(); return; }
     if (ev.key === "h" || ev.key === "?") { openHelp(); ev.preventDefault(); return; }
     if (/^Digit[1-9]$/.test(ev.code)) { startAbility(parseInt(ev.code.slice(5), 10) - 1); ev.preventDefault(); return; }
     if (ev.key === "Escape") { stopTravel(); if (ui.selItem) { ui.selItem = null; renderGame(); } }
@@ -980,6 +1083,7 @@
   });
   $("btn-help").addEventListener("click", openHelp);
   $("btn-export").addEventListener("click", exportRun);
+  $("btn-sound").addEventListener("click", toggleSound);
   $("file-import").addEventListener("change", function (ev) { importFile(ev.target.files && ev.target.files[0]); });
   $("btn-menu").addEventListener("click", function () { stopTravel(); renderTitle(); });
   $("btn-create-go").addEventListener("click", beginRun);

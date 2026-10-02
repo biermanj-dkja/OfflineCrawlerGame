@@ -128,7 +128,11 @@ input[type=text] {
 #log { overflow-y: auto; font-size: 12px; min-height: 0; }
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .l-bad { color: #ff8a7a; } .l-good { color: #8fe0a0; } .l-warn { color: #ffcf6a; } .l-miss { color: #8a8295; }
-.l-hit { color: #e8dfca; } .l-story { color: #c7a8ff; font-style: italic; } .l-combat { color: #ffb070; } .l-info { color: #b5abc0; }
+.l-hit { color: #e8dfca; } .l-story { color: #c7a8ff; font-style: italic; }
+#log div.l-story { white-space: normal; }
+.modal-box.wide { width: 1180px; }
+.modal-box .cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 16px; }
+.modal-box .cols3 li { font-size: 11.5px; line-height: 1.3; } .l-combat { color: #ffb070; } .l-info { color: #b5abc0; }
 #info { font-size: 12px; overflow-y: auto; color: #c9c0b0; min-height: 0; }
 #info .utilrow button { font-size: 11px; padding: 1px 5px; }
 #info .ttl { color: #ffe2a8; font-weight: bold; }
