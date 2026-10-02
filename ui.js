@@ -135,17 +135,28 @@
   function beginRun() {
     var party = ui.party.map(function (p) { return { cls: p.cls, name: cleanName(p.name) }; });
     state = G.newRun({ seed: ui.seed, daily: ui.daily, party: party });
-    enterGame();
+    enterGame(true);
   }
   function cleanName(n) {
     n = String(n || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 18);
     return n || "Nameless";
   }
-  function enterGame() {
+  function enterGame(briefing) {
     ui.sel = 0; ui.tgt = null; ui.selItem = null;
     show("game");
     fitCanvas();
     renderGame();
+    if (briefing) showBriefing();
+  }
+  function showBriefing() {
+    var box = $("modal-box"), st = state.story; clear(box);
+    box.appendChild(el("h2", "", st.dungeon));
+    box.appendChild(el("p", "", st.premise));
+    box.appendChild(el("p", "fine", "Seven floors. Each floor has one objective shown at the top; the stairs stay sealed until it is done. The last floor holds " + st.boss + ", " + st.title + "."));
+    box.appendChild(el("p", "fine", "Press E to auto-explore, G to travel to the objective, H for help."));
+    var foot = el("div", "modal-foot"); foot.appendChild(button("Descend (Enter)", closeModal, "primary")); box.appendChild(foot);
+    openModal("help");
+    foot.querySelector("button").focus();
   }
 
   // ---------- Game rendering ----------
@@ -156,9 +167,9 @@
     renderHud(); renderParty(); renderActions(); renderGear(); renderLog(); renderInfo(); drawMap(); renderModals();
   }
   function renderHud() {
-    $("hud-floor").textContent = "Floor " + state.floor.num + "/" + G.LAST_FLOOR;
-    var o = $("hud-objective"), done = state.floor.objective.done;
-    o.textContent = (done ? "Stairs open: " : "Objective: ") + (done ? "descend when ready." : G.objectiveText(state));
+    $("hud-floor").textContent = "Floor " + state.floor.num + "/" + G.LAST_FLOOR + ": " + G.floorTitle(state, state.floor.num);
+    var o = $("hud-objective"), ob = state.floor.objective, done = ob.done && ob.type !== "stairs";
+    o.textContent = (done ? "Done: " : "Objective: ") + G.objectiveText(state);
     o.className = "hud-obj" + (done ? " done" : "");
     o.dataset.tip = "Floor objective. The stairs stay sealed until it is complete.";
     $("hud-seed").textContent = (state.daily ? "Daily " : "Seed ") + state.seed;
@@ -460,44 +471,74 @@
     cv.style.width = Math.floor(cv.width * s) + "px";
     cv.style.height = Math.floor(cv.height * s) + "px";
   }
+  function shade(hex, k) {
+    var n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, gg = (n >> 8) & 255, b = n & 255;
+    return "rgb(" + Math.round(r * k) + "," + Math.round(gg * k) + "," + Math.round(b * k) + ")";
+  }
   function drawMap() {
-    var cv = $("map"), g = cv.getContext("2d"), f = state.floor;
+    var cv = $("map"), g = cv.getContext("2d"), f = state.floor, T = G.THEMES[f.theme];
+    var wallC = T.wall, wallD = shade(T.wall, 0.7), floorC = T.floor, dotC = shade(T.wall, 0.8);
     g.fillStyle = "#050407"; g.fillRect(0, 0, cv.width, cv.height);
     for (var y = 0; y < f.h; y++) for (var x = 0; x < f.w; x++) {
       if (!G.isSeen(f, x, y)) continue;
-      var vis = G.canSee(state, x, y), px = x * TS, py = y * TS;
-      if (G.tileAt(f, x, y) === "#") {
-        g.fillStyle = "#3b3542"; g.fillRect(px, py, TS, TS);
-        g.fillStyle = "#2a2530"; g.fillRect(px, py + 11, TS, 2); g.fillRect(px + 11, py, 2, 11); g.fillRect(px + 4, py + 13, 2, 11);
+      var vis = G.canSee(state, x, y), px = x * TS, py = y * TS, t = G.tileAt(f, x, y);
+      if (t === "#") {
+        g.fillStyle = wallC; g.fillRect(px, py, TS, TS);
+        g.fillStyle = wallD; g.fillRect(px, py + 11, TS, 2); g.fillRect(px + 11, py, 2, 11); g.fillRect(px + 4, py + 13, 2, 11);
       } else {
         var pol = G.polarAt(f, x, y);
-        g.fillStyle = pol === "L" ? "#2e2616" : pol === "D" ? "#0d0b14" : "#17141b"; g.fillRect(px, py, TS, TS);
-        if (pol === "L") { g.fillStyle = "#6a5428"; g.fillRect(px + 5, py + 5, 2, 2); g.fillRect(px + 16, py + 15, 2, 2); }
-        else if (pol === "D") { g.strokeStyle = "#221d33"; g.lineWidth = 1; g.beginPath(); g.moveTo(px, py + TS); g.lineTo(px + TS, py); g.moveTo(px, py + 12); g.lineTo(px + 12, py); g.stroke(); }
-        else { g.fillStyle = "#2a2530"; g.fillRect(px + 11, py + 11, 2, 2); }
+        g.fillStyle = pol === "L" ? "#2e2616" : pol === "D" ? "#0b0910" : floorC; g.fillRect(px, py, TS, TS);
+        if (pol === "L") { g.fillStyle = "#7a6230"; g.fillRect(px + 5, py + 5, 2, 2); g.fillRect(px + 16, py + 15, 2, 2); g.fillRect(px + 16, py + 4, 2, 2); }
+        else if (pol === "D") { g.strokeStyle = "#251f38"; g.lineWidth = 1; g.beginPath(); g.moveTo(px, py + TS); g.lineTo(px + TS, py); g.moveTo(px, py + 12); g.lineTo(px + 12, py); g.moveTo(px + 12, py + TS); g.lineTo(px + TS, py + 12); g.stroke(); }
+        else { g.fillStyle = dotC; g.fillRect(px + 11, py + 11, 2, 2); }
+        if (t === "b" || t === "B") drawGlyph(g, x, y, t === "B" ? "☀" : "b", t === "B" ? "#ffd36b" : "#8a7a60", t === "B" ? "#ffb040" : "#6a5a40", "box");
       }
       if (!vis) { g.fillStyle = "rgba(5,4,7,0.62)"; g.fillRect(px, py, TS, TS); }
     }
+    // Remembered static features are drawn dimmed out of sight; creatures only when visible.
     f.features.forEach(function (ft) {
       if (!G.isSeen(f, ft.x, ft.y)) return;
+      var vis = G.canSee(state, ft.x, ft.y);
       if (ft.kind === "caltrops") drawGlyph(g, ft.x, ft.y, "%", "#b0e0a0", "#4a8a4a", "diamond");
+      else if (ft.kind === "hazard") drawHazard(g, ft);
+      else if (ft.kind === "shrine") drawGlyph(g, ft.x, ft.y, "†", ft.used ? "#6a6470" : "#ffe9a0", ft.used ? "#4a4452" : "#e0c060", "diamond");
+      else if (ft.kind === "relic") drawGlyph(g, ft.x, ft.y, "♦", "#ffe27a", "#ffb040", "star");
+      if (!vis) { g.fillStyle = "rgba(5,4,7,0.55)"; g.fillRect(ft.x * TS, ft.y * TS, TS, TS); }
     });
-    if (G.isSeen(f, f.stairs.x, f.stairs.y)) drawGlyph(g, f.stairs.x, f.stairs.y, ">", f.objective.done ? "#9fe0ff" : "#6a7a80", f.objective.done ? "#9fe0ff" : "#5a6a70", "box", !f.objective.done);
+    if (f.stairs && G.isSeen(f, f.stairs.x, f.stairs.y)) {
+      drawGlyph(g, f.stairs.x, f.stairs.y, ">", f.objective.done ? "#9fe0ff" : "#6a7a80", f.objective.done ? "#9fe0ff" : "#5a6a70", "box", !f.objective.done);
+      if (!G.canSee(state, f.stairs.x, f.stairs.y)) { g.fillStyle = "rgba(5,4,7,0.5)"; g.fillRect(f.stairs.x * TS, f.stairs.y * TS, TS, TS); }
+    }
     f.items.forEach(function (gi) {
       if (!G.canSee(state, gi.x, gi.y)) return;
       var I = G.ITEMS[gi.item.base];
       drawGlyph(g, gi.x, gi.y, SLOT_GLYPH[I.slot], RAR_COLOR[gi.item.rarity], RAR_COLOR[gi.item.rarity], gi.item.rarity === "unique" ? "star" : gi.item.rarity === "rare" ? "double" : "box");
     });
+    // Telegraphs first, so creatures draw on top.
+    f.enemies.forEach(function (e) {
+      if (e.hidden || !G.canSee(state, e.x, e.y)) return;
+      if (e.charge) G.chargeLine(state, e).forEach(function (p) { danger(g, p[0], p[1], "→"); });
+      if (e.nova) for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) danger(g, e.nova.x + dx, e.nova.y + dy, "!");
+      if (e.swell || e.sweep) for (var ax = -1; ax <= 1; ax++) for (var ay = -1; ay <= 1; ay++) if (ax || ay) danger(g, e.x + ax, e.y + ay, "");
+      if (e.type === "husk" && e.ward) {
+        var w = G.enemyById(state, e.ward);
+        if (w && G.canSee(state, w.x, w.y)) { g.strokeStyle = "#9fd0ff"; g.lineWidth = 2; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(e.x * TS + TS / 2, e.y * TS + TS / 2); g.lineTo(w.x * TS + TS / 2, w.y * TS + TS / 2); g.stroke(); g.setLineDash([]); }
+      }
+    });
     f.enemies.forEach(function (e) {
       if (e.hidden || !G.canSee(state, e.x, e.y)) return;
       var D = G.ENEMIES[e.type];
-      drawGlyph(g, e.x, e.y, D.glyph, "#ffb4a8", "#d0503a", "round");
-      var w = Math.max(2, Math.round((TS - 4) * e.hp / e.maxHp));
+      var shape = e.type === "gate" ? "spike" : (e.type === "warden" || e.type === "boss") ? "double" : "round";
+      drawGlyph(g, e.x, e.y, D.glyph, e.type === "boss" ? "#ffd0ff" : "#ffb4a8", e.type === "boss" ? "#c050ff" : e.type === "gate" ? "#ff7040" : "#d0503a", shape);
+      var hw = Math.max(2, Math.round((TS - 4) * Math.max(0, e.hp) / e.maxHp));
       g.fillStyle = "#000"; g.fillRect(e.x * TS + 2, e.y * TS + TS - 4, TS - 4, 3);
-      g.fillStyle = "#e04a3a"; g.fillRect(e.x * TS + 2, e.y * TS + TS - 4, w, 3);
+      g.fillStyle = "#e04a3a"; g.fillRect(e.x * TS + 2, e.y * TS + TS - 4, hw, 3);
       if (!e.awake) badge(g, e.x, e.y, "z", "#9fd0ff");
+      else if (e.charge || e.swell || e.sweep || e.nova) badge(g, e.x, e.y, "!", "#ff5040");
       else if (e.st.stun > 0) badge(g, e.x, e.y, "*", "#ffe27a");
       else if (e.st.root > 0) badge(g, e.x, e.y, "#", "#b0e0a0");
+      else if (e.st.hex) badge(g, e.x, e.y, "h", "#ffb0d8");
+      if (e.st.shroud) { g.strokeStyle = "#9fd0ff"; g.lineWidth = 1; g.strokeRect(e.x * TS + 1, e.y * TS + 1, TS - 2, TS - 2); }
     });
     // Party: one token. Companions trail as small pips on the leader's tile.
     var ld = G.front(state) || state.party[0], C = G.CLASSES[ld.cls];
@@ -534,11 +575,34 @@
     else if (shape === "diamond") { g.moveTo(px + c, py + 2); g.lineTo(px + TS - 2, py + c); g.lineTo(px + c, py + TS - 2); g.lineTo(px + 2, py + c); g.closePath(); }
     else if (shape === "star") { for (var i = 0; i < 10; i++) { var a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 5 : 11; g.lineTo(px + c + Math.cos(a) * r, py + c + Math.sin(a) * r); } g.closePath(); }
     else if (shape === "double") { g.rect(px + 2, py + 2, TS - 4, TS - 4); g.rect(px + 5, py + 5, TS - 10, TS - 10); }
+    else if (shape === "spike") { for (var k = 0; k < 16; k++) { var an = k * Math.PI / 8, rr = k % 2 ? 7 : 11; g.lineTo(px + c + Math.cos(an) * rr, py + c + Math.sin(an) * rr); } g.closePath(); }
     else g.rect(px + 3, py + 3, TS - 6, TS - 6);
     g.stroke();
     g.fillStyle = color; g.font = "bold 15px Consolas, monospace"; g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText(ch, px + c, py + c + 1);
     if (locked) { g.strokeStyle = "#c06050"; g.lineWidth = 2; g.beginPath(); g.moveTo(px + 4, py + 4); g.lineTo(px + TS - 4, py + TS - 4); g.stroke(); }
+  }
+  // Hazards: zigzag pattern plus glyph, so they never rely on colour alone.
+  function drawHazard(g, ft) {
+    var H = G.HAZARDS[ft.sub], px = ft.x * TS, py = ft.y * TS;
+    g.strokeStyle = "#e06040"; g.lineWidth = 2; g.beginPath();
+    for (var k = 0; k <= 4; k++) g.lineTo(px + 2 + k * 5, py + (k % 2 ? 7 : 3));
+    g.moveTo(px + 2, py + TS - 3);
+    for (var j = 0; j <= 4; j++) g.lineTo(px + 2 + j * 5, py + TS - (j % 2 ? 7 : 3));
+    g.stroke();
+    g.fillStyle = "#ff9070"; g.font = "bold 14px Consolas, monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(H.glyph, px + TS / 2, py + TS / 2 + 1);
+  }
+  // Telegraphed danger: red diagonal stripes with a marker.
+  function danger(g, x, y, mark) {
+    if (x < 0 || y < 0 || x >= G.MAP_W || y >= G.MAP_H) return;
+    var px = x * TS, py = y * TS;
+    g.save(); g.beginPath(); g.rect(px, py, TS, TS); g.clip();
+    g.fillStyle = "rgba(200,40,30,0.28)"; g.fillRect(px, py, TS, TS);
+    g.strokeStyle = "rgba(255,80,60,0.75)"; g.lineWidth = 2;
+    for (var k = -TS; k < TS; k += 7) { g.beginPath(); g.moveTo(px + k, py + TS); g.lineTo(px + k + TS, py); g.stroke(); }
+    g.restore();
+    if (mark) { g.fillStyle = "#ffd0c0"; g.font = "bold 12px Consolas, monospace"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(mark, px + TS / 2, py + TS / 2); }
   }
   function badge(g, x, y, ch, color) {
     var px = x * TS + TS - 9, py = y * TS;
@@ -569,17 +633,25 @@
     var e = G.enemyAt(state, x, y);
     if (e && !e.hidden && vis) {
       var D = G.ENEMIES[e.type];
-      out.push(D.name + "  HP " + e.hp + "/" + e.maxHp + (e.awake ? "" : "  [ASLEEP - z]"));
+      out.push(G.enemyName(e) + "  HP " + e.hp + "/" + e.maxHp + (e.awake ? "" : "  [ASLEEP - z]"));
       out.push(D.desc);
       out.push("Intent: " + G.intentOf(state, e));
       var sts = G.statusText(e.st); if (sts.length) out.push("Status: " + sts.join(", "));
       out.push("XP: " + e.xp + " to each conscious party member.");
     }
     if (x === state.pos.x && y === state.pos.y) out.push("Your party: " + state.party.map(function (c, i) { return (i + 1) + "." + c.name; }).join(" ") + "\nThe whole party shares one tile; portrait order is the formation.");
-    if (x === f.stairs.x && y === f.stairs.y) out.push("Stairs down" + (f.objective.done ? " - open." : " - sealed: " + G.objectiveText(state)));
+    if (f.stairs && x === f.stairs.x && y === f.stairs.y) out.push("Stairs down (>)" + (f.objective.done ? " - open." : " - sealed: " + G.objectiveText(state)));
     f.items.forEach(function (gi) { if (gi.x === x && gi.y === y && vis) out.push(G.itemName(gi.item) + " [" + G.RARITY[gi.item.rarity].name + "] - walk over it to pick it up."); });
     var ft = G.featureAt(state, x, y);
     if (ft && ft.kind === "caltrops") out.push("Your caltrops: the first foe to step here is hurt and rooted.");
+    if (ft && ft.kind === "hazard") out.push(G.HAZARDS[ft.sub].name + " (" + G.HAZARDS[ft.sub].glyph + ", zigzag): " + G.HAZARDS[ft.sub].desc + " Damage: " + ft.dmg + " each. Travel commands avoid it.");
+    if (ft && ft.kind === "shrine") out.push(G.SHRINES[ft.sub].name + (ft.used ? " (spent)" : "") + ": " + G.SHRINES[ft.sub].desc + " Step onto it outside combat.");
+    if (ft && ft.kind === "relic") out.push(f.objective.name + " (♦): the floor objective. Walk over it to take it, then carry it to the stairs.");
+    var tt = G.tileAt(f, x, y);
+    if (tt === "b") out.push("Cold brazier (b). Walk into it to light it (uses the shared Move in combat). Its light spreads 3 tiles; the Unlit takes +50% damage on lit ground.");
+    if (tt === "B") out.push("Burning brazier. The ground around it is lit.");
+    if (e && !e.hidden && vis && e.type === "husk" && e.ward) { var w = G.enemyById(state, e.ward); if (w) out.push("Guarding: " + G.enemyName(w) + " (dashed line)."); }
+    if (e && !e.hidden && vis && G.interceptor(state, e)) out.push("Protected: a Shield-Husk will intercept single-target attacks aimed at it.");
     var pol = G.polarAt(f, x, y);
     if (G.tileAt(f, x, y) !== "#" && pol !== ".") out.push(pol === "L" ? "Lit ground (dotted): shadow-kin weaken here." : "Deep shadow (hatched): shadow-kin thrive and hidden things lurk here.");
     if (!out.length) out.push(G.tileAt(f, x, y) === "#" ? "Wall." : "Floor.");
@@ -691,7 +763,7 @@
     show("end");
     var win = state.status === "victory";
     var t = $("end-title"); t.textContent = win ? "VICTORY" : "THE PARTY HAS FALLEN"; t.className = win ? "win" : "lose";
-    $("end-sub").textContent = win ? "You climb back toward a morning you had stopped believing in." : "The dark keeps what it takes.";
+    $("end-sub").textContent = win ? state.story.boss + " is ended. You climb out of " + state.story.dungeon + " toward a morning you had stopped believing in." : "The dark of " + state.story.dungeon + " keeps what it takes. " + state.story.boss + " endures.";
     var s = $("end-stats"); clear(s);
     [["Seed", (state.daily ? "Daily " : "") + state.seed], ["Floor reached", state.floor.num + " / " + G.LAST_FLOOR], ["Floors cleared", state.stats.floorsCleared],
       ["Enemies slain", state.stats.kills], ["Damage dealt", state.stats.dmgDealt], ["Damage taken", state.stats.dmgTaken],

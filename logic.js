@@ -281,16 +281,64 @@
   // ------------------------------------------------------------------
   // Enemies
   // ------------------------------------------------------------------
+  // ai values are distinct behaviours, not stat variants. minFloor gates where a type first appears.
   var ENEMIES = {
-    gnawer: { name: "Gnawer", glyph: "r", hp: 9, dmg: [2, 4], acc: 75, eva: 10, arm: 0, xp: 5, ai: "melee",
-      desc: "A hairless, hungry thing. Rushes the front rank and bites." },
-    archer: { name: "Bone Archer", glyph: "a", hp: 8, dmg: [2, 5], acc: 75, eva: 5, arm: 0, xp: 7, ai: "ranged", range: 6, keep: 3,
-      desc: "Keeps its distance and shoots any party member it can see. Backs away when cornered." }
+    gnawer: { name: "Gnawer", glyph: "r", hp: 9, dmg: [2, 4], acc: 75, eva: 10, arm: 0, xp: 5, ai: "melee", fast: true, minFloor: 1,
+      desc: "Fast melee pursuer: moves 2 tiles a turn. A hairless, hungry thing that rushes the front rank and bites." },
+    archer: { name: "Bone Archer", glyph: "a", hp: 8, dmg: [2, 5], acc: 75, eva: 5, arm: 0, xp: 7, ai: "ranged", range: 7, keep: 3, minFloor: 1,
+      desc: "Ranged (7). Keeps 3+ tiles away and shoots any party member it can see. Backs away when you close in." },
+    ooze: { name: "Mire Ooze", glyph: "O", hp: 15, dmg: [2, 4], acc: 70, eva: 0, arm: 0, xp: 6, ai: "melee", split: "oozeling", asleep: true, aware: 3, minFloor: 1,
+      desc: "Splitter. Starts dormant and wakes if you come within 3 tiles. When destroyed it splits into two Oozelings." },
+    oozeling: { name: "Oozeling", glyph: "o", hp: 6, dmg: [1, 3], acc: 70, eva: 5, arm: 0, xp: 2, ai: "melee", minFloor: 99,
+      desc: "Melee pursuer. A fragment of a Mire Ooze." },
+    gaoler: { name: "Gaoler", glyph: "J", hp: 24, dmg: [4, 8], acc: 78, eva: 0, arm: 2, xp: 16, ai: "brute", asleep: true, aware: 2, minFloor: 2,
+      desc: "Heavy sleeper. Asleep until you come within 2 tiles, attack it, or make noise nearby. Slow: moves only every other round, but hits hard." },
+    charger: { name: "Ironhorn", glyph: "C", hp: 16, dmg: [3, 5], charge: [7, 10], acc: 80, eva: 0, arm: 1, xp: 12, ai: "charger", minFloor: 2,
+      desc: "Charger. With a straight, clear line to the party (3-6 tiles) it lowers its horns - the line is marked - and charges next turn. Step off the line and it crashes, stunned." },
+    bloat: { name: "Ember Bloat", glyph: "B", hp: 10, dmg: [0, 0], blast: [5, 8], acc: 100, eva: 0, arm: 0, xp: 7, ai: "bloat", minFloor: 2,
+      desc: "Exploder. Drifts toward the party. When adjacent it swells (marked !) and bursts on its next turn, burning EVERY party member. Kill it first or step away." },
+    acolyte: { name: "Murk Acolyte", glyph: "h", hp: 10, dmg: [1, 3], acc: 75, eva: 5, arm: 0, xp: 9, ai: "healer", range: 5, keep: 3, heal: 6, minFloor: 2,
+      desc: "Healer. Hangs back; every few turns it heals the most wounded ally within 5 or shrouds one (+2 armour). Otherwise flings weak bolts. Kill it first." },
+    lurker: { name: "Lurker", glyph: "L", hp: 13, dmg: [3, 6], ambush: [4, 7], acc: 80, eva: 10, arm: 0, xp: 10, ai: "melee", lurk: true, minFloor: 2,
+      desc: "Ambusher. Hides unseen on deep-shadow (hatched) ground. When the party comes within 2 tiles it erupts with an AMBUSH strike on a random party member before you can act. Light or a lantern reveals it." },
+    shade: { name: "Shade", glyph: "s", hp: 10, dmg: [3, 5], acc: 80, eva: 20, arm: 0, xp: 9, ai: "shade", shadow: true, minFloor: 2,
+      desc: "Shadow-kin. Moves 2 tiles a turn when starting on dark ground. On lit ground it loses its evasion and burns for 3 each turn, so it avoids light." },
+    husk: { name: "Shield-Husk", glyph: "H", hp: 18, dmg: [2, 4], acc: 75, eva: 0, arm: 3, xp: 10, ai: "defender", minFloor: 3,
+      desc: "Defender. Stays beside its ward and intercepts single-target attacks aimed at it. Area effects get past it." },
+    gate: { name: "Spawning Gate", glyph: "Ω", hp: 22, dmg: [0, 0], acc: 0, eva: 0, arm: 2, xp: 14, ai: "gate", structure: true, every: 3, cap: 3, total: 8, minFloor: 99,
+      desc: "Spawner. While the party is within 8 tiles it births a Gate-Grub every 3 turns (3 alive at most, 8 in total). Grubs are worth no XP. Destroy the gate." },
+    grub: { name: "Gate-Grub", glyph: "g", hp: 5, dmg: [1, 3], acc: 70, eva: 5, arm: 0, xp: 0, ai: "melee", minFloor: 99,
+      desc: "Melee pursuer spawned by a gate. Worth no XP." },
+    warden: { name: "Warden", glyph: "W", hp: 34, dmg: [4, 7], acc: 80, eva: 5, arm: 2, xp: 30, ai: "warden", minFloor: 99,
+      desc: "Floor warden. Every third turn it winds up a SWEEP (marked !) that strikes every party member next turn if the party is still adjacent." },
+    boss: { name: "The Unlit", glyph: "Ψ", hp: 70, dmg: [5, 8], bolt: [4, 7], nova: [8, 12], acc: 85, eva: 5, arm: 2, xp: 0, ai: "boss", shadow: true, minFloor: 99,
+      desc: "The final threat. Phase 1: bolts and summons up to 4 Shades. Phase 2 (below 2/3 HP): marks a 3x3 NOVA around the party, bursting next turn. Phase 3 (below 1/3): acts twice per turn in melee. Takes +50% damage on lit ground." }
   };
 
   var THEMES = {
-    ossuary: { name: "Ossuary", enemies: ["gnawer", "gnawer", "archer"] }
+    ossuary: { name: "Ossuary", pool: ["gnawer", "archer", "gaoler", "charger", "husk", "ooze"], hazard: "spikes", dark: 0.2, lit: 0.15,
+      wall: "#4a4452", floor: "#1b181e", accent: "#cfc6b0" },
+    cistern: { name: "Drowned Cistern", pool: ["gnawer", "ooze", "lurker", "archer", "acolyte"], hazard: "brine", dark: 0.35, lit: 0.1,
+      wall: "#2e4248", floor: "#111a1d", accent: "#7fc0c8" },
+    foundry: { name: "Ember Foundry", pool: ["bloat", "charger", "husk", "gnawer", "archer"], hazard: "cinders", dark: 0.1, lit: 0.35,
+      wall: "#54362a", floor: "#1d1411", accent: "#ff9a50" },
+    chapel: { name: "Umbral Chapel", pool: ["shade", "acolyte", "lurker", "husk", "archer", "gaoler"], hazard: "vent", dark: 0.5, lit: 0.1,
+      wall: "#3a2e4e", floor: "#120f19", accent: "#b89cff" },
+    throne: { name: "The Hollow Throne", pool: [], hazard: "vent", dark: 1, lit: 0, wall: "#2a2030", floor: "#0e0b12", accent: "#ffd36b" }
   };
+  var HAZARDS = {
+    spikes: { name: "Bone Spikes", glyph: "^", dmg: 3, desc: "Bone spikes. Every party member takes damage when the party steps here." },
+    brine: { name: "Brine Pool", glyph: "~", dmg: 2, desc: "Scalding brine. Every party member takes damage when the party steps here." },
+    cinders: { name: "Cinder Grate", glyph: "^", dmg: 4, desc: "A grate of live cinders. Every party member takes damage when the party steps here." },
+    vent: { name: "Gloam Vent", glyph: "~", dmg: 3, desc: "A vent breathing cold shadow. Every party member takes damage when the party steps here." }
+  };
+  var SHRINES = {
+    mending: { name: "Shrine of the Patient Saint", desc: "One use. Heals every party member by 50% of max HP and revives the downed at 25%." },
+    embers: { name: "Ember Shrine", desc: "One use. Restores 1 charge to every ability of every party member." },
+    whet: { name: "Whetstone Altar", desc: "One use. Each party member permanently gains +1 to their main stat (Power or Will)." },
+    bargain: { name: "Shrine of Dubious Bargains", desc: "One use. Each conscious member loses a quarter of their current HP; the shrine pays in a magic or rare item." }
+  };
+  var RELICS = ["the Saint's Tooth", "the Drowned Key", "the Brass Heart", "the Lamp of Orrin", "the Ninth Bell's Tongue", "the Glass Psalter"];
 
   // ------------------------------------------------------------------
   // Name generation (original syllables; deterministic per seed, slot and reroll count)
@@ -301,6 +349,33 @@
     var s = makeStream(streamKey(seed, "names", slot + "|" + n));
     var nm = rpick(s, NAME_A) + rpick(s, NAME_B);
     return nm.charAt(0).toUpperCase() + nm.slice(1);
+  }
+  var WARDEN_NAMES = ["Ser Mallow", "Old Hesk", "Mother Grieve", "The Tallow Knight", "Brother Absent", "Gammer Coil", "Ser Rookwood", "The Lantern-Jaw"];
+  var WARDEN_OF = ["the Ninth Bell", "the Low Stair", "Wet Stone", "the Ash Gate", "Lesser Mercies", "the Cold Hearth", "Small Hours"];
+
+  // ------------------------------------------------------------------
+  // Story: a compact mission frame from its own stream. Grim, with the occasional dry aside.
+  // ------------------------------------------------------------------
+  var ST_ADJ = ["Sallow", "Drowned", "Hollow", "Ashen", "Weeping", "Lightless", "Moth-Eaten", "Sunken", "Bell-less", "Ninefold"];
+  var ST_PLACE = ["Undercroft", "Vaults", "Warrens", "Reliquary", "Deeps", "Barrows", "Cloister", "Catacomb"];
+  var ST_TOWN = ["Lowmarrow", "Saint Ebb", "Hesketh Fold", "Wickham-under-Tor", "Candlecross", "Murrowgate", "Little Dimming"];
+  var ST_BOSS = ["Vesperine", "Morrow Knell", "Abbess Ulme", "Corvane", "Saint Absence", "Mother Wick", "The Dun Prior"];
+  var ST_TITLE = ["the Unlit", "Keeper of the Last Lamp", "Who Swallowed the Dawn", "the Hollow Abbess", "the Candle-Eater", "Lord of Small Hours"];
+  var ST_PREMISE = [
+    "{boss}, {title}, has drunk the lamplight of {town}. Descend the seven floors of {dungeon} and end the Gloam before the last candle gutters.",
+    "Every night since the bells fell silent, {town} has lost another hour of dawn. The thief waits at the bottom of {dungeon}: {boss}, {title}.",
+    "The wardens of {dungeon} were sworn to keep {boss} asleep. They have stopped answering. {town} sends you.",
+    "{town} paid in good copper and slightly worse sausages. The work: walk down through {dungeon} and persuade {boss}, {title}, to stop. Permanently.",
+    "Something under {town} is eating the light. The map calls the place {dungeon}. The map was drawn by someone who did not come back."
+  ];
+  function makeStory(seed) {
+    var s = makeStream(streamKey(seed, "story"));
+    var dungeon = "the " + rpick(s, ST_ADJ) + " " + rpick(s, ST_PLACE);
+    var boss = rpick(s, ST_BOSS), title = rpick(s, ST_TITLE), town = rpick(s, ST_TOWN);
+    var premise = rpick(s, ST_PREMISE).replace(/\{boss\}/g, boss).replace(/\{title\}/g, title).replace(/\{town\}/g, town).replace(/\{dungeon\}/g, dungeon);
+    var floorNames = [null];
+    for (var n = 1; n <= LAST_FLOOR; n++) floorNames.push(rpick(s, ["Upper", "Lower", "Outer", "Inner", "Deep", "Far", "Hidden", "Broken"]));
+    return { dungeon: dungeon.charAt(0).toUpperCase() + dungeon.slice(1), boss: boss, title: title, town: town, premise: premise, floorNames: floorNames };
   }
 
   // ------------------------------------------------------------------
@@ -323,7 +398,9 @@
     if (x < 0 || y < 0 || x >= f.w || y >= f.h) return "#";
     return f.tiles[y].charAt(x);
   }
+  // '#' wall, '.' floor, 'b' unlit brazier, 'B' lit brazier. Braziers block movement, not sight.
   function isFloor(f, x, y) { return tileAt(f, x, y) !== "#"; }
+  function isWalk(f, x, y) { return tileAt(f, x, y) === "."; }
   function polarAt(f, x, y) { return (x < 0 || y < 0 || x >= f.w || y >= f.h) ? "." : f.polar[y].charAt(x); }
   function setChar(rows, x, y, ch) {
     var r = rows[y];
@@ -333,8 +410,8 @@
   function isSeen(f, x, y) { return x >= 0 && y >= 0 && x < f.w && y < f.h && f.seen[y].charAt(x) === "1"; }
   // Diagonal steps may not squeeze between two walls.
   function canStep(f, x, y, dx, dy) {
-    if (!isFloor(f, x + dx, y + dy)) return false;
-    if (dx !== 0 && dy !== 0 && !isFloor(f, x + dx, y) && !isFloor(f, x, y + dy)) return false;
+    if (!isWalk(f, x + dx, y + dy)) return false;
+    if (dx !== 0 && dy !== 0 && !isWalk(f, x + dx, y) && !isWalk(f, x, y + dy)) return false;
     return true;
   }
 
@@ -508,14 +585,33 @@
     throw new Error("Floor generation failed for seed " + seed + " floor " + n);
   }
 
+  // Run-wide plan from its own stream: floor themes, objective order and unique placement.
+  // Each floor reads the plan but never consumes another floor's stream.
+  var planCache = {};
+  function runPlan(seed) {
+    if (planCache[seed]) return planCache[seed];
+    var s = makeStream(streamKey(seed, "plan"));
+    var th = rshuffle(s, ["ossuary", "cistern", "foundry", "chapel"]);
+    var t5 = rpick(s, th.filter(function (t) { return t !== th[3]; }));
+    var t6 = rpick(s, th.filter(function (t) { return t !== t5; }));
+    var objs = rshuffle(s, ["gate", "warden", "relic", rpick(s, ["gate", "warden", "relic"]), rpick(s, ["stairs", "gate", "warden", "relic"])]);
+    var plan = { themes: [null, th[0], th[1], th[2], th[3], t5, t6, "throne"], objectives: [null, "stairs"].concat(objs).concat(["boss"]),
+      uniques: rshuffle(s, UNIQUE_IDS.slice()) };
+    var keys = Object.keys(planCache);
+    if (keys.length > 50) delete planCache[keys[0]];
+    planCache[seed] = plan;
+    return plan;
+  }
+
   function tryFloor(s, seed, n) {
+    if (n === LAST_FLOOR) return bossFloor(s, seed);
+    var plan = runPlan(seed), themeId = plan.themes[n], T = THEMES[themeId], objType = plan.objectives[n];
     var built = buildRooms(s);
     if (!built) return null;
-    var themeId = "ossuary";
     var tiles = built.g.map(function (r) { return r.join(""); });
     var polar = []; for (var y = 0; y < MAP_H; y++) polar.push(new Array(MAP_W + 1).join("."));
     var f = { num: n, theme: themeId, w: MAP_W, h: MAP_H, tiles: tiles, polar: polar, rooms: [], start: null, stairs: null,
-      objective: { type: "stairs", done: true }, enemies: [], items: [], features: [] };
+      objective: { type: objType, done: objType === "stairs" }, enemies: [], items: [], features: [] };
     var rooms = built.rooms.map(function (r) { return { x: r.x, y: r.y, w: r.w, h: r.h }; });
     var startRoom = rint(s, 0, rooms.length - 1);
     var sc = roomCenter(rooms[startRoom]);
@@ -524,52 +620,173 @@
     var order = rooms.map(function (r, i) { var c = roomCenter(r); return { i: i, d: dist[idx(c.x, c.y)] }; })
       .filter(function (o) { return o.i !== startRoom; })
       .sort(function (a, b) { return a.d - b.d || a.i - b.i; });
-    if (!order.length || order[order.length - 1].d < 0) return null;
+    if (order.length < 4 || order[0].d < 0) return null;
+    var maxd = order[order.length - 1].d;
     var stairsRoom = order[order.length - 1].i;
     var stc = roomCenter(rooms[stairsRoom]);
     f.stairs = { x: stc.x, y: stc.y };
     f.rooms = rooms;
+    // Light and shadow per room (Archon-style polarity).
+    rooms.forEach(function (r, i) {
+      if (i === startRoom) return;
+      var p = rnext(s), ch = p < T.dark ? "D" : p < T.dark + T.lit ? "L" : ".";
+      if (ch !== ".") roomTiles(r).forEach(function (t) { setChar(polar, t.x, t.y, ch); });
+    });
     var occupied = {};
     occupied[sc.x + "," + sc.y] = 1; occupied[stc.x + "," + stc.y] = 1;
-    function freeTile(room) {
+    var startR = rooms[startRoom];
+    function freeTile(room, nearCenter) {
       var cands = roomTiles(room).filter(function (t) { return !occupied[t.x + "," + t.y]; });
+      if (nearCenter) {
+        var c = roomCenter(room);
+        cands.sort(function (a, b) { return cheb(a.x, a.y, c.x, c.y) - cheb(b.x, b.y, c.x, c.y) || a.y - b.y || a.x - b.x; });
+        cands = cands.slice(0, 1);
+      }
       if (!cands.length) return null;
       var t = rpick(s, cands); occupied[t.x + "," + t.y] = 1; return t;
     }
-    var theme = THEMES[themeId];
+    var pool = T.pool.filter(function (t) { return ENEMIES[t].minFloor <= n; });
+    if (!pool.length) pool = ["gnawer", "archer"];
+    // One encounter: entry tags give solo 1-2 foes, duos 2-3, trios 3-4 - more bodies, not more HP.
+    function encounter(room, lead) {
+      var tags = [1, rchance(s, 0.25 + 0.05 * n) ? 1 : 2, 2, rchance(s, 0.3) ? 2 : 0, rchance(s, 0.8) ? 3 : 0, rchance(s, 0.5) ? 3 : 0];
+      var heavy = 0;
+      tags.forEach(function (tag, k) {
+        if (!tag) return;
+        // Extras for larger parties lean toward foes that pressure the back rank.
+        var backPool = pool.filter(function (t) { return t === "archer" || t === "acolyte" || t === "charger" || t === "shade" || t === "bloat"; });
+        var type = k === 0 && lead ? lead : (tag >= 2 && backPool.length && rchance(s, 0.6) ? rpick(s, backPool) : rpick(s, pool));
+        if ((type === "gaoler" || type === "husk" || type === "charger") && heavy++) type = rpick(s, ["gnawer", "gnawer", "archer"]);
+        if (type === "husk" && k === 0) type = rpick(s, ["archer", "gnawer", "acolyte"].filter(function (t) { return ENEMIES[t].minFloor <= n; }));
+        var t = freeTile(room);
+        if (!t) return;
+        var d = { type: type, x: t.x, y: t.y, minParty: tag };
+        if (ENEMIES[type].lurk) {
+          d.hidden = true;
+          for (var yy = t.y - 1; yy <= t.y + 1; yy++) for (var xx = t.x - 1; xx <= t.x + 1; xx++) if (inRoom(room, xx, yy)) setChar(polar, xx, yy, "D");
+        }
+        f.enemies.push(d);
+      });
+    }
+    var objRoom = -1;
+    var far = order.filter(function (o) { return o.d >= maxd * 0.5 && o.i !== stairsRoom; });
+    if (!far.length) far = order.filter(function (o) { return o.i !== stairsRoom; });
+    if (objType === "gate") {
+      objRoom = rpick(s, far).i;
+      var gt = freeTile(rooms[objRoom], true);
+      if (!gt) return null;
+      f.enemies.push({ type: "gate", x: gt.x, y: gt.y, minParty: 1, primary: true });
+    } else if (objType === "warden") {
+      objRoom = stairsRoom;
+      var wt = freeTile(rooms[stairsRoom]);
+      if (!wt) return null;
+      var wname = rpick(s, WARDEN_NAMES) + ", Warden of " + rpick(s, WARDEN_OF);
+      f.enemies.push({ type: "warden", x: wt.x, y: wt.y, minParty: 1, name: wname });
+      f.objective.name = wname;
+    } else if (objType === "relic") {
+      objRoom = rpick(s, far).i;
+      var rt = freeTile(rooms[objRoom]);
+      if (!rt) return null;
+      f.features.push({ kind: "relic", x: rt.x, y: rt.y });
+      f.objective.name = rpick(s, RELICS);
+      f.objective.carried = false;
+    }
     order.forEach(function (o) {
-      if (o.d < 7 || !rchance(s, 0.7)) return;
-      var count = rint(s, 2, 3);
-      for (var k = 0; k < count; k++) {
-        var t = freeTile(rooms[o.i]);
-        if (!t) break;
-        // minParty tags let one generated floor serve every party size identically.
-        f.enemies.push({ type: rpick(s, theme.enemies), x: t.x, y: t.y, minParty: k === 0 ? 1 : k + 1 });
-      }
+      var must = o.i === stairsRoom || o.i === objRoom;
+      if (!must && (o.d < 6 || !rchance(s, 0.5))) return;
+      encounter(rooms[o.i], null);
     });
-    // Fixed loot: equipment and consumables placed by the floor stream.
-    var lootRooms = order.slice();
+    // Occasional secondary gates deeper down.
+    if (n >= 3 && objType !== "gate" && rchance(s, 0.35)) {
+      var mid = order.filter(function (o) { return o.d >= 8 && o.i !== stairsRoom && o.i !== objRoom; });
+      if (mid.length) { var gt2 = freeTile(rooms[rpick(s, mid).i]); if (gt2) f.enemies.push({ type: "gate", x: gt2.x, y: gt2.y, minParty: 2 }); }
+    }
+    // Hazards: never on the critical path (checked by validateFloorDef with hazards treated as walls).
+    var nh = rint(s, 2, 4);
+    for (var h = 0; h < nh; h++) {
+      var hr = rpick(s, order), ht = freeTile(rooms[hr.i]);
+      if (ht) f.features.push({ kind: "hazard", sub: T.hazard, x: ht.x, y: ht.y });
+    }
+    if (rchance(s, 0.75)) {
+      var sr = rpick(s, order), stt = freeTile(rooms[sr.i]);
+      if (stt) f.features.push({ kind: "shrine", sub: rweighted(s, [["mending", 3], ["embers", 2], ["whet", 2], ["bargain", 1]]), x: stt.x, y: stt.y });
+    }
+    // Fixed loot: equipment and consumables placed by the floor stream; uniques on floors 2, 4 and 6.
     var nLoot = 2 + (n >= 3 ? 1 : 0);
     for (var li = 0; li < nLoot + 1; li++) {
-      var room = rooms[rpick(s, lootRooms).i], lt = freeTile(room);
+      var lt = freeTile(rooms[rpick(s, order).i]);
       if (lt) f.items.push({ x: lt.x, y: lt.y, item: rollItemDef(s, n, li === nLoot) });
     }
+    if (n % 2 === 0) {
+      var ut = freeTile(rooms[rpick(s, far).i]);
+      if (ut) f.items.push({ x: ut.x, y: ut.y, item: { base: plan.uniques[n / 2 - 1], rarity: "unique", affixes: [] } });
+    }
+    var st0 = freeTile(startR);
+    if (st0 && n > 1) f.items.push({ x: st0.x, y: st0.y, item: { base: "draught", rarity: "common", affixes: [] } });
+    f.rooms = rooms.map(function (r, i) { return { x: r.x, y: r.y, w: r.w, h: r.h, start: i === startRoom }; });
     return f;
   }
 
-  // Confirms every required location is reachable from the start tile.
+  // Floor 7: an arena with four braziers. Lighting them weakens the boss.
+  function bossFloor(s, seed) {
+    var g = blankGrid(), x, y;
+    var start = { x: 2, y: 9, w: 7, h: 7 }, arena = { x: 14, y: 3, w: 24, h: 20 };
+    [start, arena].forEach(function (r) { for (y = r.y; y < r.y + r.h; y++) for (x = r.x; x < r.x + r.w; x++) carve(g, x, y); });
+    var cy = rint(s, 11, 13);
+    for (x = 8; x <= 14; x++) carve(g, x, cy);
+    var braziers = [[17, 6], [34, 6], [17, 19], [34, 19]];
+    braziers.forEach(function (b) { g[b[1]][b[0]] = "b"; });
+    // A few pillars for cover, mirrored top/bottom.
+    var np = rint(s, 2, 3);
+    for (var p = 0; p < np; p++) {
+      var px = rint(s, 20, 31), py = rint(s, 5, 8);
+      g[py][px] = "#"; g[3 + 20 - 1 - (py - 3)][px] = "#";
+    }
+    var tiles = g.map(function (r) { return r.join(""); });
+    var polar = [];
+    for (y = 0; y < MAP_H; y++) { var row = ""; for (x = 0; x < MAP_W; x++) row += inRoom(arena, x, y) ? "D" : "."; polar.push(row); }
+    var story = makeStory(seed);
+    var f = { num: LAST_FLOOR, theme: "throne", w: MAP_W, h: MAP_H, tiles: tiles, polar: polar,
+      rooms: [{ x: start.x, y: start.y, w: start.w, h: start.h, start: true }, { x: arena.x, y: arena.y, w: arena.w, h: arena.h }],
+      start: { x: 4, y: cy }, stairs: null, objective: { type: "boss", done: false, name: story.boss }, enemies: [], items: [], features: [] };
+    var by = rint(s, 11, 14);
+    f.enemies.push({ type: "boss", x: 31, y: by, minParty: 1, name: story.boss });
+    f.enemies.push({ type: "shade", x: 29, y: by - 2, minParty: 2 });
+    f.enemies.push({ type: "shade", x: 29, y: by + 2, minParty: 3 });
+    f.features.push({ kind: "shrine", sub: "mending", x: 3, y: 10 });
+    f.items.push({ x: 7, y: 14, item: { base: "draught", rarity: "common", affixes: [] } });
+    f.items.push({ x: 7, y: 10, item: { base: rpick(s, ["bomb", "vial", "tonic"]), rarity: "common", affixes: [] } });
+    return f;
+  }
+
+  // Confirms every required location is reachable from the start tile, including with hazards treated as walls.
   function validateFloorDef(f) {
     var problems = [];
-    var dist = bfsDist(f, f.start.x, f.start.y);
-    function reach(x, y) { return isFloor(f, x, y) && dist[idx(x, y)] >= 0; }
+    var hz = {};
+    f.features.forEach(function (ft) { if (ft.kind === "hazard") hz[ft.x + "," + ft.y] = 1; });
+    var dist = bfsDist(f, f.start.x, f.start.y, function (x, y) { return !!hz[x + "," + y]; });
+    var distAll = bfsDist(f, f.start.x, f.start.y);
+    function reach(x, y) { return isWalk(f, x, y) && dist[idx(x, y)] >= 0; }
     function reachAdj(x, y) {
       if (reach(x, y)) return true;
       for (var i = 0; i < 8; i++) if (reach(x + DIRS[i][0], y + DIRS[i][1])) return true;
       return false;
     }
-    if (!f.stairs || !reach(f.stairs.x, f.stairs.y)) problems.push("stairs unreachable");
-    f.enemies.forEach(function (e) { if (!reachAdj(e.x, e.y)) problems.push("enemy unreachable"); });
-    f.items.forEach(function (it) { if (!reach(it.x, it.y)) problems.push("item unreachable"); });
+    if (hz[f.start.x + "," + f.start.y]) problems.push("hazard on start");
+    if (f.objective.type !== "boss") {
+      if (!f.stairs || !reach(f.stairs.x, f.stairs.y)) problems.push("stairs unreachable");
+    }
+    var o = f.objective;
+    if (o.type === "gate" && !f.enemies.some(function (e) { return e.primary && reachAdj(e.x, e.y); })) problems.push("primary gate unreachable");
+    if (o.type === "warden" && !f.enemies.some(function (e) { return e.type === "warden" && reach(e.x, e.y); })) problems.push("warden unreachable");
+    if (o.type === "relic" && !f.features.some(function (ft) { return ft.kind === "relic" && reach(ft.x, ft.y); })) problems.push("relic unreachable");
+    if (o.type === "boss") {
+      if (!f.enemies.some(function (e) { return e.type === "boss" && reach(e.x, e.y); })) problems.push("boss unreachable");
+      for (var y = 0; y < f.h; y++) for (var x = 0; x < f.w; x++) if (tileAt(f, x, y) === "b" && !reachAdj(x, y)) problems.push("brazier unreachable");
+    }
+    f.enemies.forEach(function (e) { if (!(isWalk(f, e.x, e.y) && distAll[idx(e.x, e.y)] >= 0) && !reachAdj(e.x, e.y)) problems.push("enemy unreachable"); });
+    f.items.forEach(function (it) { if (!(isWalk(f, it.x, it.y) && distAll[idx(it.x, it.y)] >= 0)) problems.push("item unreachable"); });
+    f.features.forEach(function (ft) { if (ft.kind === "shrine" && !reach(ft.x, ft.y)) problems.push("shrine unreachable"); });
     return { ok: problems.length === 0, problems: problems };
   }
 
@@ -626,6 +843,7 @@
     var st = { maxHp: C.base.hp + C.per.hp * L + c.bonus.hp, pow: C.base.pow + C.per.pow * L + c.bonus.pow,
       wil: C.base.wil + C.per.wil * L + c.bonus.wil, arm: C.base.arm + c.bonus.arm, acc: C.base.acc + c.bonus.acc,
       eva: C.base.eva + c.bonus.eva, sp: {} };
+    if (c.solo) st.maxHp = Math.round(st.maxHp * 1.5);
     if (has(c.upgrades, "p_bulwark")) { st.arm += 2; st.maxHp += 6; }
     if (has(c.upgrades, "p_keeneye")) st.acc += 10;
     SLOTS.forEach(function (sl) {
@@ -650,6 +868,7 @@
     if (has(c.upgrades, "up_" + id) && id !== "guard") m += 1;
     if (A.spell && has(c.upgrades, "p_reservoir")) m += 1;
     if (st.sp.halo) m += 1;
+    if (c.solo) m += 1;
     if (st.sp.echoes && c.abilities[0] && c.abilities[0].id === id) m += 1;
     return m;
   }
@@ -687,13 +906,27 @@
       seed: seed, daily: !!opts.daily, status: "explore", turn: 0, nextId: 0,
       rng: { runtime: makeStream(streamKey(seed, "runtime")) },
       party: [], inventory: [], floor: null, pos: { x: 0, y: 0 }, combat: null,
-      levelQueue: [], offer: null,
+      levelQueue: [], offer: null, uniquesFound: [],
+      story: makeStory(seed),
       log: [], stats: { kills: 0, turns: 0, dmgDealt: 0, dmgTaken: 0, floorsCleared: 0, itemsFound: 0 }, flags: {}
     };
     (opts.party || []).forEach(function (p) { state.party.push(makeChar(state, p.cls, p.name)); });
+    // Lone Delver: a solo character gets +50% max HP and +1 max charge to limited abilities (never extra XP).
+    if (state.party.length === 1) {
+      var lone = state.party[0];
+      lone.solo = true;
+      lone.hp = charStats(lone).maxHp;
+      lone.abilities.forEach(function (a) { a.charges = abilityMax(lone, a.id); });
+    }
+    log(state, state.story.premise, "story");
     enterFloor(state, 1);
-    log(state, "The party descends into the dark.", "story");
     return state;
+  }
+
+  function floorTitle(state, n) {
+    var f = n === state.floor.num ? state.floor : null, th = f ? f.theme : runPlan(state.seed).themes[n];
+    if (n === LAST_FLOOR) return THEMES.throne.name;
+    return state.story.floorNames[n] + " " + THEMES[th].name;
   }
 
   function enterFloor(state, n) {
@@ -701,38 +934,63 @@
     var size = state.party.length;
     var seen = []; for (var y = 0; y < MAP_H; y++) seen.push(new Array(MAP_W + 1).join("0"));
     var f = { num: n, theme: def.theme, w: def.w, h: def.h, tiles: def.tiles.slice(), polar: def.polar.slice(), seen: seen,
-      rooms: def.rooms.map(function (r) { return { x: r.x, y: r.y, w: r.w, h: r.h, visited: false }; }),
-      stairs: { x: def.stairs.x, y: def.stairs.y }, objective: JSON.parse(JSON.stringify(def.objective)),
+      rooms: def.rooms.map(function (r) { return { x: r.x, y: r.y, w: r.w, h: r.h, visited: !!r.start }; }),
+      stairs: def.stairs ? { x: def.stairs.x, y: def.stairs.y } : null, objective: JSON.parse(JSON.stringify(def.objective)),
       enemies: [], items: [], features: [], noticed: [] };
     state.floor = f;
     state.pos = { x: def.start.x, y: def.start.y };
+    // Party size filters the generated roster; the generated floor itself is identical for everyone.
     def.enemies.forEach(function (d) {
       if (d.minParty > size) return;
-      spawnEnemy(state, d.type, d.x, d.y, {});
+      var e = spawnEnemy(state, d.type, d.x, d.y, {});
+      if (d.hidden) e.hidden = true;
+      if (d.primary) e.primary = true;
+      if (d.name) e.name = d.name;
     });
-    def.items.forEach(function (d) { f.items.push({ x: d.x, y: d.y, item: makeItem(state, d.item) }); });
+    def.features.forEach(function (d) {
+      var ft = { id: newId(state), kind: d.kind, x: d.x, y: d.y };
+      if (d.sub) ft.sub = d.sub;
+      if (d.kind === "hazard") ft.dmg = HAZARDS[d.sub].dmg + Math.floor((n - 1) / 2);
+      if (d.kind === "shrine") ft.used = false;
+      f.features.push(ft);
+    });
+    def.items.forEach(function (d) {
+      if (d.item.rarity === "unique") {
+        if (has(state.uniquesFound, d.item.base)) return;
+        state.uniquesFound.push(d.item.base);
+      }
+      f.items.push({ x: d.x, y: d.y, item: makeItem(state, d.item) });
+    });
     state.combat = null;
     state.status = "explore";
     state.offer = null;
+    log(state, "Floor " + n + ": " + floorTitle(state, n) + ". " + objectiveText(state), "story");
     updateVision(state);
+    maybeStartCombat(state);
   }
 
   function spawnEnemy(state, type, x, y, o) {
     var D = ENEMIES[type], n = state.floor.num;
-    var hp = Math.round(D.hp * (1 + 0.16 * (n - 1)));
+    var hp = Math.round(D.hp * 1.35 * (1 + 0.2 * (n - 1)));
+    if (type === "boss") hp = D.hp + 25 * (state.party.length - 1);
     var e = { id: newId(state), type: type, x: x, y: y, hp: hp, maxHp: hp, awake: !D.asleep, alerted: !!o.alerted,
-      hidden: false, st: {}, xp: o.xp !== undefined ? o.xp : D.xp };
+      hidden: false, st: {}, xp: o.xp !== undefined ? o.xp : D.xp, cd: 0 };
+    if (D.structure) e.spawned = 0;
     state.floor.enemies.push(e);
     return e;
   }
 
-  function enemyName(e) { return ENEMIES[e.type].name; }
+  function enemyName(e) { return e.name || ENEMIES[e.type].name; }
   function enemyStat(state, e) {
-    var D = ENEMIES[e.type], n = state.floor.num, b = Math.floor((n - 1) * 0.6);
-    var st = { dmg: [D.dmg[0] + b, D.dmg[1] + b], acc: D.acc + 2 * (n - 1), eva: D.eva, arm: D.arm };
+    var D = ENEMIES[e.type], n = state.floor.num, b = e.type === "boss" ? 0 : Math.floor((n - 1) * 0.75 + 0.5);
+    var st = { dmg: [D.dmg[0] + b, D.dmg[1] + b], acc: D.acc + 2 * (n - 1), eva: D.eva, arm: D.arm, b: b };
+    var pol = polarAt(state.floor, e.x, e.y);
+    if (D.shadow) { if (pol === "L") st.eva = 0; else if (pol === "D") st.eva += 10; }
+    if (e.st.shroud) st.arm += 2;
     if (e.st.blind) st.acc -= 40;
     return st;
   }
+  function scaled(state, e, range) { var b = enemyStat(state, e).b; return [range[0] + b, range[1] + b]; }
 
   // ------------------------------------------------------------------
   // Vision updates, discoveries, waking
@@ -753,16 +1011,50 @@
       }
       if (arr) f.seen[y] = arr.join("");
     }
+    revealLurkers(state, v);
     f.enemies.forEach(function (e) {
       if (e.hidden || !v[idx(e.x, e.y)]) return;
-      notice(state, "e" + e.id, "enemy", e.awake ? null : "You see a sleeping " + enemyName(e) + ".");
+      notice(state, "e" + e.id, "enemy", e.awake ? null : "You see a sleeping " + enemyName(e) + " (z).");
     });
     f.items.forEach(function (g) { if (v[idx(g.x, g.y)]) notice(state, "i" + g.item.id, "item", "You spot " + itemName(g.item) + "."); });
-    if (v[idx(f.stairs.x, f.stairs.y)]) notice(state, "stairs", "stairs", "You spot the stairs down.");
+    f.features.forEach(function (ft) {
+      if (!v[idx(ft.x, ft.y)]) return;
+      if (ft.kind === "hazard") notice(state, "f" + ft.id, "hazard", "You spot " + HAZARDS[ft.sub].name + " - the travel commands will avoid it.");
+      if (ft.kind === "shrine") notice(state, "f" + ft.id, "shrine", "You spot a " + SHRINES[ft.sub].name + ".");
+      if (ft.kind === "relic") notice(state, "f" + ft.id, "objective", "There: " + f.objective.name + ".");
+    });
+    if (f.stairs && v[idx(f.stairs.x, f.stairs.y)]) notice(state, "stairs", "stairs", "You spot the stairs down.");
+    for (var by = 0; by < f.h; by++) for (var bx = 0; bx < f.w; bx++) {
+      if (tileAt(f, bx, by) === "b" && v[idx(bx, by)]) notice(state, "b" + bx + "," + by, "objective", "A cold brazier. Walk into it to light it; light weakens the Unlit.");
+    }
     // Waking by awareness range (deterministic: distance and line of sight only).
     f.enemies.forEach(function (e) {
       var D = ENEMIES[e.type];
-      if (!e.awake && D.aware && v[idx(e.x, e.y)] && cheb(e.x, e.y, state.pos.x, state.pos.y) <= D.aware) wake(state, e, "senses the party");
+      if (!e.awake && D.aware && v[idx(e.x, e.y)] && cheb(e.x, e.y, state.pos.x, state.pos.y) <= D.aware) wake(state, e, "you came within " + D.aware + " tiles");
+    });
+    if (!conscious(state).length && state.status !== "defeat") defeat(state);
+  }
+
+  // Hidden ambushers erupt when the party comes within 2 tiles; a lantern exposes them at 3 without the ambush.
+  function revealLurkers(state, v) {
+    var f = state.floor, rt = state.rng.runtime;
+    var lantern = conscious(state).some(function (c) { return charStats(c).sp.lantern; });
+    f.enemies.forEach(function (e) {
+      if (!e.hidden || !v[idx(e.x, e.y)]) return;
+      var d = cheb(e.x, e.y, state.pos.x, state.pos.y);
+      if (lantern && d <= 3 && d > 2) {
+        e.hidden = false; e.awake = true; e.alerted = true;
+        log(state, "Your lantern exposes a " + enemyName(e) + " in the shadows!", "warn");
+        emit("discover", { what: "enemy" });
+        return;
+      }
+      if (d > 2) return;
+      e.hidden = false; e.awake = true; e.alerted = true;
+      emit("discover", { what: "enemy" });
+      if (lantern) { log(state, "Your lantern exposes a " + enemyName(e) + " before it can strike!", "warn"); return; }
+      log(state, "AMBUSH! A " + enemyName(e) + " erupts from the shadows!", "bad");
+      var t = conscious(state);
+      if (t.length) enemyHits(state, e, rpick(rt, t), scaled(state, e, ENEMIES[e.type].ambush), "ranged", "ambushes");
     });
   }
 
@@ -796,7 +1088,7 @@
     foes.forEach(function (e) { e.alerted = true; });
     state.status = "combat";
     state.offer = null;
-    state.combat = { round: 1, actor: -1, moved: false, slip: 0, acted: [] };
+    state.combat = { round: 1, actor: -1, moved: false, slip: 0, acted: [], foes: foes.map(function (e) { return e.id; }) };
     log(state, "Combat! " + foes.map(enemyName).join(", ") + ".", "combat");
     emit("combat", {});
     startPartyPhase(state);
@@ -832,21 +1124,31 @@
     if (state.status !== "combat") return;
     var c = state.party[state.combat.actor];
     if (c) state.combat.acted.push(c.id);
-    if (checkCombatEnd(state)) return;
-    var nx = nextActor(state, state.combat.actor);
-    if (nx < 0) nx = nextActor(state, -1); // the actor list may shift if someone was downed
+    var r = checkCombatEnd(state, true);
+    if (r === true) return;
+    var nx = -1;
+    if (r !== "skip") {
+      nx = nextActor(state, state.combat.actor);
+      if (nx < 0) nx = nextActor(state, -1); // the actor list may shift if someone was downed
+    } else log(state, "No foe is in sight, but they are still out there: the round ends as they close in.", "warn");
     if (nx >= 0) { state.combat.actor = nx; return; }
     enemyPhase(state);
     if (state.status !== "combat") return;
-    if (checkCombatEnd(state)) return;
+    if (checkCombatEnd(state, false) === true) return;
     state.combat.round += 1;
     startPartyPhase(state);
   }
 
-  function checkCombatEnd(state) {
+  // Combat ends when no awake enemy is visible. Mid-phase, if foes from this fight are still
+  // alive out of sight (the party broke line of sight), the round finishes with an enemy phase
+  // first ("skip"), so stepping around a corner cannot freeze the enemy.
+  function checkCombatEnd(state, midPhase) {
     if (state.status !== "combat") return true;
     if (!conscious(state).length) { defeat(state); return true; }
-    if (awakeVisible(state).length) return false;
+    var vis = awakeVisible(state), cb = state.combat;
+    vis.forEach(function (e) { if (!has(cb.foes, e.id)) cb.foes.push(e.id); });
+    if (vis.length) return false;
+    if (midPhase && cb.foes.some(function (id) { var e = enemyById(state, id); return e && e.awake; })) return "skip";
     endCombat(state);
     return true;
   }
@@ -866,7 +1168,10 @@
     state.combat = null;
     var healed = 0;
     state.party.forEach(function (c) { c.st = {}; healed += postCombatRecovery(c); });
-    state.floor.enemies.forEach(function (e) { delete e.st.taunt; });
+    state.floor.enemies.forEach(function (e) {
+      delete e.st.taunt; delete e.st.tauntT;
+      delete e.charge; delete e.sweep; delete e.swell; delete e.nova;
+    });
     log(state, "The fighting ends." + (healed ? " The party catches its breath (recovery up to half health)." : ""), "good");
     emit("combatEnd", {});
   }
@@ -929,6 +1234,7 @@
     if (state.floor.enemies.indexOf(e) < 0) return 0;
     if (amount < 1) amount = 1;
     if (e.st.hex) amount = Math.round(amount * 1.5);
+    if (e.type === "boss" && polarAt(state.floor, e.x, e.y) === "L") amount = Math.round(amount * 1.5);
     if (!e.awake) wake(state, e, "struck");
     e.alerted = true;
     e.hp -= amount;
@@ -945,13 +1251,49 @@
     state.stats.kills += 1;
     log(state, enemyName(e) + " is destroyed." + (e.xp ? " (+" + e.xp + " XP each)" : ""), "good");
     emit("kill", { id: e.id, x: e.x, y: e.y });
+    var D = ENEMIES[e.type], o = f.objective;
+    if (e.type === "boss") {
+      o.done = true;
+      state.stats.floorsCleared += 1;
+      state.status = "victory";
+      state.combat = null;
+      log(state, enemyName(e) + " comes apart like old smoke. Somewhere far above, a bell remembers how to ring.", "story");
+      emit("victory", {});
+      return;
+    }
     if (e.xp > 0) grantXp(state, e.xp);
+    if (e.primary && o.type === "gate" && !o.done) { o.done = true; log(state, "Objective complete: the gate is sealed. The stairs are open.", "good"); emit("objective", {}); }
+    if (e.type === "warden" && o.type === "warden" && !o.done) { o.done = true; log(state, "Objective complete: the warden has fallen. The stairs are open.", "good"); emit("objective", {}); }
+    if (D.split) {
+      var spots = DIRS.map(function (d) { return [e.x + d[0], e.y + d[1]]; }).filter(function (p) {
+        return isWalk(f, p[0], p[1]) && !enemyAt(state, p[0], p[1]) && !(p[0] === state.pos.x && p[1] === state.pos.y);
+      });
+      spots.unshift([e.x, e.y]);
+      for (var k = 0; k < 2 && k < spots.length; k++) {
+        var ch = spawnEnemy(state, D.split, spots[k][0], spots[k][1], { alerted: true });
+        ch.awake = true;
+      }
+      log(state, enemyName(e) + " splits apart!", "warn");
+    }
     dropLoot(state, e);
   }
 
   function dropLoot(state, e) {
     var rt = state.rng.runtime;
     if (e.xp <= 0) return;
+    if (e.type === "warden") {
+      // Wardens always pay out: the next unplaced unique from the run plan, else a rare.
+      var plan = runPlan(state.seed), uid = null;
+      for (var u = 3; u < plan.uniques.length; u++) if (!has(state.uniquesFound, plan.uniques[u])) { uid = plan.uniques[u]; break; }
+      var wdef = uid ? { base: uid, rarity: "unique", affixes: [] } : rollItemDef(rt, state.floor.num + 3, false);
+      if (uid) state.uniquesFound.push(uid);
+      if (!uid) { wdef.rarity = wdef.affixes.length >= 2 ? "rare" : wdef.rarity; }
+      var wit = makeItem(state, wdef);
+      state.floor.items.push({ x: e.x, y: e.y, item: wit });
+      log(state, enemyName(e) + " drops " + itemName(wit) + "!", "good");
+      emit("discover", { what: "item" });
+      return;
+    }
     if (!rchance(rt, 0.08 + e.xp * 0.01)) return;
     var def = rollItemDef(rt, state.floor.num, rchance(rt, 0.5));
     var it = makeItem(state, def);
@@ -960,7 +1302,7 @@
     emit("discover", { what: "item" });
   }
 
-  var XP_TABLE = [0, 20, 50, 90, 140, 200, 270, 350, 440];
+  var XP_TABLE = [0, 20, 55, 100, 160, 235, 325, 430, 550];
   var MAX_LEVEL = XP_TABLE.length;
   function grantXp(state, amount) {
     // Every conscious member receives the full value; never divided by party size.
@@ -1155,20 +1497,37 @@
     for (var i = 0; i < actors.length; i++) {
       var e = actors[i];
       if (f.enemies.indexOf(e) < 0) continue;
-      if (e.st.dot && e.st.dotT) {
-        log(state, enemyName(e) + " suffers " + e.st.dot + " (burning/poison).", "hit");
-        hurtEnemy(state, e, e.st.dot, null);
-        e.st.dotT -= 1; if (e.st.dotT <= 0) { delete e.st.dot; delete e.st.dotT; }
-        if (f.enemies.indexOf(e) < 0) continue;
-      }
-      if (e.st.stun > 0) { e.st.stun -= 1; if (!e.st.stun) delete e.st.stun; log(state, enemyName(e) + " is stunned and loses its turn.", "info"); tickEnemy(e); continue; }
-      enemyAct(state, e, dm);
-      tickEnemy(e);
+      var turns = e.type === "boss" && e.phase === 3 ? 2 : 1;
+      for (var t = 0; t < turns && f.enemies.indexOf(e) >= 0 && state.status === "combat"; t++) enemyTurn(state, e, dm);
+      if (state.status !== "combat") return;
       if (!conscious(state).length) { defeat(state); return; }
     }
   }
+  function enemyTurn(state, e, dm) {
+    var f = state.floor;
+    if (e.st.dot && e.st.dotT) {
+      log(state, enemyName(e) + " suffers " + e.st.dot + " (burning/poison).", "hit");
+      hurtEnemy(state, e, e.st.dot, null);
+      e.st.dotT -= 1; if (e.st.dotT <= 0) { delete e.st.dot; delete e.st.dotT; }
+      if (f.enemies.indexOf(e) < 0) return;
+    }
+    if (e.st.censure && e.st.hex) {
+      log(state, enemyName(e) + " is wracked by censure (3).", "hit");
+      hurtEnemy(state, e, 3, null);
+      if (f.enemies.indexOf(e) < 0) return;
+    }
+    if (e.st.stun > 0) {
+      e.st.stun -= 1; if (!e.st.stun) delete e.st.stun;
+      delete e.charge; delete e.sweep; delete e.swell; delete e.nova;
+      log(state, enemyName(e) + " is stunned and loses its turn.", "info");
+      tickEnemy(e); return;
+    }
+    enemyAct(state, e, dm);
+    if (f.enemies.indexOf(e) >= 0) tickEnemy(e);
+  }
   function tickEnemy(e) {
-    ["root", "blind", "hex"].forEach(function (k) { if (e.st[k]) { e.st[k] -= 1; if (e.st[k] <= 0) delete e.st[k]; } });
+    ["root", "blind", "hex", "shroud"].forEach(function (k) { if (e.st[k]) { e.st[k] -= 1; if (e.st[k] <= 0) delete e.st[k]; } });
+    if (!e.st.hex) delete e.st.censure;
     if (e.st.tauntT) { e.st.tauntT -= 1; if (e.st.tauntT <= 0) { delete e.st.tauntT; delete e.st.taunt; } }
   }
 
@@ -1182,29 +1541,41 @@
       hurtEnemy(state, e, trap.dmg, null);
     }
   }
-  function stepToward(state, e, dm) {
-    if (e.st.root) return false;
-    var f = state.floor, best = null, bd = dm[idx(e.x, e.y)];
-    if (bd < 0) return false;
-    for (var i = 0; i < 8; i++) {
-      var nx = e.x + DIRS[i][0], ny = e.y + DIRS[i][1];
-      if (!canStep(f, e.x, e.y, DIRS[i][0], DIRS[i][1])) continue;
-      if (nx === state.pos.x && ny === state.pos.y) continue;
-      if (enemyAt(state, nx, ny)) continue;
-      var d = dm[idx(nx, ny)];
-      if (d >= 0 && d < bd) { bd = d; best = [nx, ny]; }
+  function enemyCanEnter(state, e, x, y, avoidLit) {
+    if (x === state.pos.x && y === state.pos.y) return false;
+    if (enemyAt(state, x, y)) return false;
+    if (featureAt(state, x, y, "hazard")) return false;
+    if (avoidLit && polarAt(state.floor, x, y) === "L") return false;
+    return true;
+  }
+  function stepToward(state, e, dm, avoidLit) {
+    if (e.st.root || ENEMIES[e.type].structure) return false;
+    var f = state.floor, best = null, here = dm[idx(e.x, e.y)], bd = here, side = null;
+    if (here < 0) return false;
+    for (var pass = 0; pass < (avoidLit ? 2 : 1) && !best; pass++) {
+      for (var i = 0; i < 8; i++) {
+        var nx = e.x + DIRS[i][0], ny = e.y + DIRS[i][1];
+        if (!canStep(f, e.x, e.y, DIRS[i][0], DIRS[i][1])) continue;
+        if (!enemyCanEnter(state, e, nx, ny, avoidLit && pass === 0)) continue;
+        var d = dm[idx(nx, ny)];
+        if (d >= 0 && d < bd) { bd = d; best = [nx, ny]; }
+        else if (d === here && !side && !(e.lx === nx && e.ly === ny)) side = [nx, ny];
+      }
     }
+    // Blocked by bodies: sidestep along an equal-distance tile (never straight back to where it came from).
+    if (!best && side && (enemyAt(state, e.x + sgn(state.pos.x - e.x), e.y + sgn(state.pos.y - e.y)))) best = side;
     if (!best) return false;
+    e.lx = e.x; e.ly = e.y;
     moveEnemy(state, e, best[0], best[1]);
     return true;
   }
   function stepAway(state, e, dm, mustSee) {
-    if (e.st.root) return false;
+    if (e.st.root || ENEMIES[e.type].structure) return false;
     var f = state.floor, best = null, bd = dm[idx(e.x, e.y)];
     for (var i = 0; i < 8; i++) {
       var nx = e.x + DIRS[i][0], ny = e.y + DIRS[i][1];
       if (!canStep(f, e.x, e.y, DIRS[i][0], DIRS[i][1])) continue;
-      if (enemyAt(state, nx, ny) || (nx === state.pos.x && ny === state.pos.y)) continue;
+      if (!enemyCanEnter(state, e, nx, ny, false)) continue;
       if (mustSee && !canSee(state, nx, ny)) continue;
       var d = dm[idx(nx, ny)];
       if (d > bd) { bd = d; best = [nx, ny]; }
@@ -1213,30 +1584,270 @@
     moveEnemy(state, e, best[0], best[1]);
     return true;
   }
+  function freeAdjacent(state, x, y) {
+    for (var i = 0; i < 8; i++) {
+      var nx = x + DIRS[i][0], ny = y + DIRS[i][1];
+      if (isWalk(state.floor, nx, ny) && !enemyAt(state, nx, ny) && !(nx === state.pos.x && ny === state.pos.y)) return [nx, ny];
+    }
+    return null;
+  }
+
+  // A Shield-Husk intercepts single-target attacks aimed at its ward.
+  function interceptor(state, e) {
+    var es = state.floor.enemies;
+    for (var i = 0; i < es.length; i++) {
+      var o = es[i];
+      if (o !== e && o.type === "husk" && o.awake && !o.st.stun && o.ward === e.id && cheb(o.x, o.y, e.x, e.y) <= 1) return o;
+    }
+    return null;
+  }
+  function redirect(state, e) {
+    var h = e ? interceptor(state, e) : null;
+    if (h) { log(state, enemyName(h) + " steps in front of " + enemyName(e) + "!", "warn"); return h; }
+    return e;
+  }
+
+  function gateTick(state, e) {
+    var D = ENEMIES.gate;
+    if (e.spawned >= D.total) return;
+    var alive = state.floor.enemies.filter(function (o) { return o.from === e.id; }).length;
+    e.cd = (e.cd || 0) + 1;
+    if (e.cd < D.every || alive >= D.cap) return;
+    var spot = freeAdjacent(state, e.x, e.y);
+    if (!spot) return;
+    e.cd = 0;
+    var g = spawnEnemy(state, "grub", spot[0], spot[1], { alerted: true, xp: 0 });
+    g.from = e.id;
+    e.spawned += 1;
+    log(state, enemyName(e) + " births a Gate-Grub (" + (D.total - e.spawned) + " left in it).", "warn");
+  }
+
+  function clearLine(state, e, dx, dy, d) {
+    var x = e.x, y = e.y;
+    for (var k = 1; k < d; k++) {
+      if (!canStep(state.floor, x, y, dx, dy)) return false;
+      x += dx; y += dy;
+      if (enemyAt(state, x, y)) return false;
+    }
+    return true;
+  }
+  // Tiles a telegraphed charge will sweep (for the map overlay).
+  function chargeLine(state, e) {
+    if (!e.charge) return [];
+    var out = [], x = e.x, y = e.y;
+    for (var k = 0; k < 8; k++) {
+      if (!canStep(state.floor, x, y, e.charge.dx, e.charge.dy)) break;
+      x += e.charge.dx; y += e.charge.dy;
+      out.push([x, y]);
+    }
+    return out;
+  }
 
   function enemyAct(state, e, dm) {
-    var D = ENEMIES[e.type], d = cheb(e.x, e.y, state.pos.x, state.pos.y), seen = canSee(state, e.x, e.y);
+    var D = ENEMIES[e.type], f = state.floor, rt = state.rng.runtime;
+    var d = cheb(e.x, e.y, state.pos.x, state.pos.y), seen = canSee(state, e.x, e.y);
     var es = enemyStat(state, e);
-    if (D.ai === "melee") {
-      if (d <= 1) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "bites");
-      else stepToward(state, e, dm);
-    } else if (D.ai === "ranged") {
-      if (d < D.keep && !e.st.taunt && stepAway(state, e, dm, true)) return;
-      if (seen && d <= D.range) enemyHits(state, e, partyTarget(state, e, "ranged"), es.dmg, "ranged", "shoots");
-      else stepToward(state, e, dm);
+    switch (D.ai) {
+      case "melee":
+        if (d <= 1) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", e.type === "lurker" ? "claws" : "bites");
+        else if (stepToward(state, e, dm) && D.fast && cheb(e.x, e.y, state.pos.x, state.pos.y) > 1) stepToward(state, e, dm);
+        return;
+      case "ranged":
+        if (d < D.keep && !e.st.taunt && stepAway(state, e, dm, true)) return;
+        if (seen && d <= D.range) enemyHits(state, e, partyTarget(state, e, "ranged"), es.dmg, "ranged", "shoots");
+        else stepToward(state, e, dm);
+        return;
+      case "brute":
+        if (d <= 1) { enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "clubs"); return; }
+        if (e.cd) { e.cd = 0; log(state, enemyName(e) + " gathers itself.", "info"); return; }
+        if (stepToward(state, e, dm)) e.cd = 1;
+        return;
+      case "gate":
+        gateTick(state, e);
+        return;
+      case "healer": {
+        if (e.cd > 0) e.cd -= 1;
+        var allies = f.enemies.filter(function (o) { return o !== e && !ENEMIES[o.type].structure && o.awake && !o.hidden && cheb(o.x, o.y, e.x, e.y) <= D.range; });
+        var hurt = allies.filter(function (o) { return o.hp < o.maxHp; }).sort(function (a, b) { return a.hp / a.maxHp - b.hp / b.maxHp || a.id - b.id; })[0];
+        // Heals every third turn at most and only 4 casts in its life, so it can never stall a fight.
+        var castsLeft = (e.casts || 0) < 4;
+        if (hurt && !e.cd && castsLeft) {
+          var amt = Math.min(hurt.maxHp - hurt.hp, D.heal + es.b);
+          hurt.hp += amt; e.cd = 2; e.casts = (e.casts || 0) + 1;
+          log(state, enemyName(e) + " knits " + enemyName(hurt) + "'s wounds (+" + amt + ").", "warn");
+          return;
+        }
+        var bare = allies.filter(function (o) { return !o.st.shroud; }).sort(function (a, b) { return b.xp - a.xp || a.id - b.id; })[0];
+        if (bare && !e.cd && castsLeft) { bare.st.shroud = 2; e.cd = 3; e.casts = (e.casts || 0) + 1; log(state, enemyName(e) + " shrouds " + enemyName(bare) + " (+2 armour for 2 turns).", "warn"); return; }
+        if (d < D.keep && !e.st.taunt && stepAway(state, e, dm, true)) return;
+        if (seen && d <= D.range) enemyHits(state, e, partyTarget(state, e, "ranged"), es.dmg, "ranged", "flings murk at");
+        else stepToward(state, e, dm);
+        return;
+      }
+      case "charger": {
+        if (e.charge) {
+          var c = e.charge, hit = false;
+          delete e.charge;
+          for (var k = 0; k < 8; k++) {
+            var nx = e.x + c.dx, ny = e.y + c.dy;
+            if (nx === state.pos.x && ny === state.pos.y) { hit = true; break; }
+            if (!canStep(f, e.x, e.y, c.dx, c.dy) || enemyAt(state, nx, ny)) break;
+            moveEnemy(state, e, nx, ny);
+            if (f.enemies.indexOf(e) < 0) return;
+          }
+          if (hit) { log(state, enemyName(e) + " CHARGES into the party!", "bad"); enemyHits(state, e, partyTarget(state, e, "melee"), scaled(state, e, D.charge), "melee", "gores"); }
+          else { e.st.stun = 1; log(state, enemyName(e) + " thunders past and crashes, dazed for a round.", "good"); }
+          return;
+        }
+        if (d <= 1) { enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "butts"); return; }
+        var ddx = state.pos.x - e.x, ddy = state.pos.y - e.y;
+        if ((ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d >= 3 && d <= 6 && seen && clearLine(state, e, sgn(ddx), sgn(ddy), d)) {
+          e.charge = { dx: sgn(ddx), dy: sgn(ddy) };
+          log(state, enemyName(e) + " lowers its horns: it will CHARGE along the marked line next turn. Step off it!", "warn");
+          emit("telegraph", { id: e.id });
+          return;
+        }
+        stepToward(state, e, dm);
+        return;
+      }
+      case "bloat":
+        if (e.swell) {
+          log(state, enemyName(e) + " BURSTS in a gout of embers!", "bad");
+          if (d <= 1) conscious(state).forEach(function (m) { enemyHits(state, e, m, scaled(state, e, D.blast), "area", "burns", { sure: true }); });
+          f.enemies.slice().forEach(function (o) { if (o !== e && cheb(o.x, o.y, e.x, e.y) <= 1) hurtEnemy(state, o, rint(rt, D.blast[0], D.blast[1]), null); });
+          var bi = f.enemies.indexOf(e);
+          if (bi >= 0) f.enemies.splice(bi, 1);
+          emit("kill", { id: e.id, x: e.x, y: e.y });
+          return;
+        }
+        if (d <= 1) { e.swell = 1; log(state, enemyName(e) + " swells and glows: it will BURST next turn!", "warn"); emit("telegraph", { id: e.id }); return; }
+        stepToward(state, e, dm);
+        return;
+      case "defender": {
+        var ward = e.ward ? enemyById(state, e.ward) : null;
+        if (!ward || ward.hidden) {
+          ward = f.enemies.filter(function (o) { return o !== e && o.type !== "husk" && !ENEMIES[o.type].structure && o.awake && !o.hidden && cheb(o.x, o.y, e.x, e.y) <= 6; })
+            .sort(function (a, b) { return b.xp - a.xp || a.id - b.id; })[0] || null;
+          e.ward = ward ? ward.id : 0;
+        }
+        if (d <= 1) { enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "bashes"); return; }
+        if (ward && cheb(e.x, e.y, ward.x, ward.y) > 1) { stepToward(state, e, bfsDist(f, ward.x, ward.y)); return; }
+        if (!ward) stepToward(state, e, dm);
+        return;
+      }
+      case "shade": {
+        if (polarAt(f, e.x, e.y) === "L") {
+          log(state, enemyName(e) + " smoulders in the light (3).", "good");
+          hurtEnemy(state, e, 3, null);
+          if (f.enemies.indexOf(e) < 0) return;
+        }
+        if (d <= 1) { enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "chills"); return; }
+        var steps = polarAt(f, e.x, e.y) === "D" ? 2 : 1;
+        for (var sk = 0; sk < steps; sk++) {
+          if (!stepToward(state, e, dm, true)) break;
+          if (cheb(e.x, e.y, state.pos.x, state.pos.y) <= 1) break;
+        }
+        return;
+      }
+      case "warden":
+        if (e.sweep) {
+          delete e.sweep;
+          if (d <= 1) {
+            log(state, enemyName(e) + " SWEEPS through the whole party!", "bad");
+            conscious(state).forEach(function (m) { enemyHits(state, e, m, es.dmg, "area", "sweeps"); });
+          } else log(state, enemyName(e) + "'s sweep cuts empty air.", "good");
+          return;
+        }
+        e.cd = (e.cd || 0) + 1;
+        if (d <= 1) {
+          if (e.cd >= 3) { e.cd = 0; e.sweep = 1; log(state, enemyName(e) + " winds up a SWEEP that will hit every party member next turn. Step away!", "warn"); emit("telegraph", { id: e.id }); return; }
+          enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "strikes");
+          return;
+        }
+        stepToward(state, e, dm);
+        return;
+      case "boss":
+        bossAct(state, e, dm, d, seen, es);
+        return;
     }
+  }
+
+  function bossPhase(e) { var r = e.hp / e.maxHp; return r > 2 / 3 ? 1 : r > 1 / 3 ? 2 : 3; }
+  function bossAct(state, e, dm, d, seen, es) {
+    var D = ENEMIES.boss, f = state.floor;
+    var ph = bossPhase(e);
+    if (ph !== (e.phase || 1)) {
+      e.phase = ph;
+      if (ph === 2) log(state, enemyName(e) + " draws the Gloam about itself. (Phase 2: it will mark NOVA zones - step out of them.)", "warn");
+      if (ph === 3) { delete e.nova; log(state, enemyName(e) + " comes unmade and lunges! (Phase 3: it acts twice per turn in melee.)", "warn"); }
+    }
+    e.phase = ph;
+    if (e.nova) {
+      var n = e.nova; delete e.nova;
+      if (cheb(n.x, n.y, state.pos.x, state.pos.y) <= 1) {
+        log(state, "The NOVA erupts beneath the party!", "bad");
+        conscious(state).forEach(function (m) { enemyHits(state, e, m, D.nova, "area", "scorches", { sure: true }); });
+      } else log(state, "The nova erupts on empty stone.", "good");
+      return;
+    }
+    if (ph === 3) {
+      if (d <= 1) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "rends");
+      else stepToward(state, e, dm);
+      return;
+    }
+    e.cd = (e.cd || 0) + 1;
+    if (ph === 1 && e.cd >= 4 && (e.summons || 0) < 4) {
+      var minions = f.enemies.filter(function (o) { return o.from === e.id; }).length;
+      var spot = freeAdjacent(state, e.x, e.y);
+      if (minions < 2 && spot) {
+        e.cd = 0; e.summons = (e.summons || 0) + 1;
+        var sh = spawnEnemy(state, "shade", spot[0], spot[1], { alerted: true, xp: 0 });
+        sh.from = e.id;
+        log(state, enemyName(e) + " tears a Shade out of the dark (no XP).", "warn");
+        return;
+      }
+    }
+    if (ph === 2 && e.cd >= 2 && seen && d <= 7) {
+      e.cd = 0;
+      e.nova = { x: state.pos.x, y: state.pos.y };
+      log(state, enemyName(e) + " marks the ground around you: a NOVA bursts there next turn!", "warn");
+      emit("telegraph", { id: e.id });
+      return;
+    }
+    // It holds its ground: claws whoever stands adjacent, bolts anyone further away.
+    if (d <= 1) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "claws");
+    else if (seen && d <= 6) enemyHits(state, e, partyTarget(state, e, "ranged"), D.bolt, "ranged", "hurls an umbral bolt at");
+    else stepToward(state, e, dm);
   }
 
   // Intent text shown to the player.
   function intentOf(state, e) {
     var D = ENEMIES[e.type];
     if (e.hidden) return "Hidden.";
-    if (!e.awake) return "Asleep" + (D.aware ? " - wakes if you come within " + D.aware + " tiles," : " -") + " or when attacked, damaged, or a noisy action happens within 6 tiles.";
+    if (!e.awake) return "ASLEEP (z): takes no turns. Wakes " + (D.aware ? "if the party comes within " + D.aware + " tiles, " : "") + "when attacked, hexed or damaged, or when a noisy action happens within 6 tiles.";
     if (e.st.stun > 0) return "Stunned - loses its next turn.";
     var d = cheb(e.x, e.y, state.pos.x, state.pos.y), t = e.st.taunt ? charById(state, e.st.taunt) : null;
-    var tn = t ? t.name + " (taunted)" : null;
-    if (D.ai === "melee") return d <= 1 ? "Will bite " + (tn || "the front rank") + "." : "Advancing on the front rank.";
-    if (D.ai === "ranged") return d < D.keep && !t ? "Will try to back away, then shoot." : "Will shoot " + (tn || "a random party member") + ".";
+    var tn = t ? t.name + " (taunted)" : null, fr = tn || "the front rank";
+    var root = e.st.root ? " Rooted: cannot move." : "";
+    switch (D.ai) {
+      case "melee": return (d <= 1 ? "Will attack " + fr + "." : "Advancing on the party.") + root;
+      case "ranged": return (d < D.keep && !t ? "Will back away if it can, otherwise shoot." : "Will shoot " + (tn || "a random party member") + " if in sight (range " + D.range + ").") + root;
+      case "brute": return d <= 1 ? "Will club " + fr + " hard." : e.cd ? "Gathering itself - will not move this turn." : "Will lumber one step closer.";
+      case "gate": return "Births a Gate-Grub every 3 turns while you are within 8 tiles (" + (ENEMIES.gate.total - e.spawned) + " left). Grubs give no XP.";
+      case "healer": return "Will heal or shroud a nearby ally" + (e.cd ? " (recovering " + e.cd + ")" : "") + "; otherwise keeps away and flings murk.";
+      case "charger": return e.charge ? "CHARGING next turn along the marked line - step off it and it crashes!" : d <= 1 ? "Will butt " + fr + "." : "Seeking a straight, clear line to charge (3-6 tiles).";
+      case "bloat": return e.swell ? "SWELLING - bursts next turn, burning every party member if adjacent!" : "Drifting closer. Swells when adjacent, then bursts.";
+      case "defender": { var w = e.ward ? enemyById(state, e.ward) : null; return (w ? "Guarding " + enemyName(w) + ": intercepts single-target attacks on it." : "Looking for something to guard.") + (d <= 1 ? " Will bash " + fr + "." : ""); }
+      case "shade": return (polarAt(state.floor, e.x, e.y) === "L" ? "In the light: no evasion, burns each turn. " : polarAt(state.floor, e.x, e.y) === "D" ? "In shadow: fast and evasive. " : "") + (d <= 1 ? "Will chill " + fr + "." : "Closing in, avoiding light.");
+      case "warden": return e.sweep ? "SWEEP next turn: hits every party member if still adjacent - step away!" : d <= 1 ? "Will strike " + fr + ". Winds up a sweep every third turn (" + (e.cd || 0) + "/3)." : "Advancing.";
+      case "boss": {
+        var ph = bossPhase(e);
+        if (e.nova) return "NOVA marked around (" + e.nova.x + "," + e.nova.y + ") - bursts next turn. Get out of the 3x3 zone!";
+        if (ph === 1) return "Phase 1: claws if adjacent, umbral bolts at range; summons a Shade every 4th turn (" + (4 - (e.summons || 0)) + " left, no XP). +50% damage taken on lit ground.";
+        if (ph === 2) return "Phase 2: alternates bolts with NOVA zones that burst a turn later. +50% damage taken on lit ground.";
+        return "Phase 3: acts TWICE per turn in melee. +50% damage taken on lit ground.";
+      }
+    }
     return "";
   }
 
@@ -1246,6 +1857,7 @@
     if (st.root) out.push("Rooted " + st.root);
     if (st.blind) out.push("Blinded " + st.blind);
     if (st.hex) out.push("Hexed " + st.hex);
+    if (st.shroud) out.push("Shrouded " + st.shroud);
     if (st.dot) out.push("Burning/poisoned " + st.dot + "x" + st.dotT);
     if (st.taunt) out.push("Taunted");
     if (st.guard) out.push("Guarding");
@@ -1268,17 +1880,68 @@
     enterTileEffects(state);
     return null;
   }
+  function onStairs(state) { var s = state.floor.stairs; return !!s && state.pos.x === s.x && state.pos.y === s.y; }
 
   function enterTileEffects(state) {
-    var f = state.floor;
-    f.rooms.forEach(function (r) { if (!r.visited && inRoom(r, state.pos.x, state.pos.y)) r.visited = true; });
+    var f = state.floor, px = state.pos.x, py = state.pos.y, o = f.objective;
+    f.rooms.forEach(function (r) { if (!r.visited && inRoom(r, px, py)) { r.visited = true; roomEvent(state, r); } });
     for (var i = f.items.length - 1; i >= 0; i--) {
       var g = f.items[i];
-      if (g.x === state.pos.x && g.y === state.pos.y) pickUp(state, g);
+      if (g && g.x === px && g.y === py) pickUp(state, g);
     }
-    if (state.pos.x === f.stairs.x && state.pos.y === f.stairs.y) {
-      log(state, f.objective.done ? "The stairs lead down. Press > (or Descend) to go deeper." : "The stairs are sealed: " + objectiveText(state), "info");
+    var hz = featureAt(state, px, py, "hazard");
+    if (hz) {
+      log(state, HAZARDS[hz.sub].name + "! Every party member takes " + hz.dmg + ".", "bad");
+      conscious(state).forEach(function (c) { hurtChar(state, c, hz.dmg, null); });
+      if (!conscious(state).length) { defeat(state); return; }
     }
+    var sh = featureAt(state, px, py, "shrine");
+    if (sh && !sh.used) {
+      if (state.status === "combat") log(state, "The " + SHRINES[sh.sub].name + " stays silent while foes are near.", "info");
+      else useShrine(state, sh);
+    }
+    var rl = featureAt(state, px, py, "relic");
+    if (rl) {
+      f.features.splice(f.features.indexOf(rl), 1);
+      o.carried = true;
+      log(state, "You take up " + o.name + ". Carry it to the stairs.", "good");
+      emit("objective", {});
+    }
+    if (onStairs(state)) {
+      if (o.type === "relic" && o.carried && !o.done) { o.done = true; log(state, "Objective complete: " + o.name + " is delivered. The stairs open.", "good"); emit("objective", {}); }
+      log(state, o.done ? "The stairs lead down. Press > (or Descend) to go deeper." : "The stairs are sealed: " + objectiveText(state), "info");
+    }
+  }
+
+  function mainStat(c) { return c.cls === "arcanist" || c.cls === "votary" ? "wil" : "pow"; }
+  function useShrine(state, ft) {
+    var rt = state.rng.runtime, S = SHRINES[ft.sub];
+    ft.used = true;
+    log(state, "You touch the " + S.name + ".", "story");
+    if (ft.sub === "mending") {
+      state.party.forEach(function (c) {
+        var mx = charStats(c).maxHp;
+        if (c.down) { c.down = false; c.hp = Math.max(1, Math.floor(mx * 0.25)); log(state, c.name + " stirs and stands.", "good"); }
+        else healChar(state, null, c, Math.ceil(mx * 0.5));
+      });
+      log(state, "Warmth that does not belong down here closes your wounds.", "good");
+    } else if (ft.sub === "embers") {
+      state.party.forEach(function (c) { c.abilities.forEach(function (a) { var m = abilityMax(c, a.id); if (m) a.charges = Math.min(m, a.charges + 1); }); });
+      log(state, "Every ability regains 1 charge.", "good");
+    } else if (ft.sub === "whet") {
+      state.party.forEach(function (c) { var k = mainStat(c); c.bonus[k] += 1; });
+      log(state, "Each of you feels sharper: +1 Power or Will.", "good");
+    } else if (ft.sub === "bargain") {
+      conscious(state).forEach(function (c) { c.hp = Math.max(1, c.hp - Math.floor(c.hp / 4)); });
+      var def = null;
+      for (var k = 0; k < 6 && (!def || def.rarity === "common"); k++) def = rollItemDef(rt, state.floor.num + 2, false);
+      if (def.rarity === "common") { def.rarity = "magic"; def.affixes = [["vigor", 6]]; if (ITEMS[def.base].slot === "weapon") def.affixes = [["keen", 6]]; }
+      var it = makeItem(state, def);
+      log(state, "The shrine takes its due in blood and pays in " + itemName(it) + ".", "warn");
+      state.floor.items.push({ x: state.pos.x, y: state.pos.y, item: it });
+      pickUp(state, state.floor.items[state.floor.items.length - 1]);
+    }
+    emit("shrine", {});
   }
 
   function pickUp(state, g) {
@@ -1296,28 +1959,36 @@
     }
   }
 
-  // Awake, alerted enemies out of sight keep hunting during exploration turns.
+  // Exploration turns: alerted foes out of sight keep hunting, and gates near the party keep spawning.
   function worldTurn(state) {
     var f = state.floor, v = vision(state), dm = null;
-    f.enemies.forEach(function (e) {
-      if (!e.awake || !e.alerted || e.hidden || v[idx(e.x, e.y)]) return;
+    f.enemies.slice().forEach(function (e) {
+      if (!e.awake || e.hidden || f.enemies.indexOf(e) < 0) return;
+      if (ENEMIES[e.type].ai === "gate") { if (cheb(e.x, e.y, state.pos.x, state.pos.y) <= 8) gateTick(state, e); return; }
+      if (!e.alerted || v[idx(e.x, e.y)]) return;
       if (!dm) dm = bfsDist(f, state.pos.x, state.pos.y);
-      stepToward(state, e, dm);
+      stepToward(state, e, dm, !!ENEMIES[e.type].shadow);
     });
   }
 
   function objectiveText(state) {
     var o = state.floor.objective;
-    if (o.type === "stairs") return "Find the stairs down.";
+    switch (o.type) {
+      case "stairs": return "Find the stairs down (>).";
+      case "gate": return o.done ? "The gate is destroyed. Find the stairs (>)." : "Destroy the Spawning Gate (Ω) to unseal the stairs.";
+      case "warden": return o.done ? "The warden is dead. Take the stairs (>)." : "Defeat " + o.name + " (W) to unseal the stairs.";
+      case "relic": return o.done ? "Relic delivered. Descend (>)." : o.carried ? "Carry " + o.name + " to the stairs (>) - carried." : "Find " + o.name + " (♦) and carry it to the stairs.";
+      case "boss": return "Destroy " + o.name + ", " + state.story.title + " (Ψ). Light braziers (b): it takes +50% damage on lit ground.";
+    }
     return "";
   }
 
   function canDescend(state) {
-    var f = state.floor;
-    return state.status === "explore" && state.pos.x === f.stairs.x && state.pos.y === f.stairs.y && f.objective.done;
+    return state.status === "explore" && onStairs(state) && state.floor.objective.done && !state.levelQueue.length;
   }
 
-  // Charge rule on descending: recover half of the missing charges, rounded up.
+  // On descending: downed revive at 25%, the rest heal 25%, and each ability recovers half
+  // of its missing charges, rounded up.
   function floorRecovery(state) {
     state.party.forEach(function (c) {
       var mx = charStats(c).maxHp;
@@ -1332,19 +2003,23 @@
   }
 
   function descend(state) {
-    if (!canDescend(state)) return state.floor.objective.done ? "Stand on the stairs, out of combat, to descend." : "The stairs are sealed: " + objectiveText(state);
-    state.stats.floorsCleared += 1;
-    if (state.floor.num >= LAST_FLOOR) {
-      state.status = "victory";
-      log(state, "You escape the Gloam.", "good");
-      emit("victory", {});
-      return null;
+    if (!canDescend(state)) {
+      if (!state.floor.stairs) return "There are no stairs here. " + objectiveText(state);
+      if (!state.floor.objective.done) return "The stairs are sealed: " + objectiveText(state);
+      return "Stand on the stairs, out of combat, to descend.";
     }
+    state.stats.floorsCleared += 1;
     floorRecovery(state);
     enterFloor(state, state.floor.num + 1);
-    log(state, "The party descends to floor " + state.floor.num + ". Wounds close a little; some charges return.", "story");
+    log(state, "Wounds close a little on the way down; the fallen rise; some charges return.", "good");
     emit("descend", {});
     return null;
+  }
+
+  function kindle(state, x, y) {
+    setChar(state.floor.tiles, x, y, "B");
+    log(state, "The brazier catches. Light spills across the stone.", "good");
+    lightArea(state, x, y, 3, 4, 0);
   }
 
   // ------------------------------------------------------------------
@@ -1380,6 +2055,22 @@
   function doMove(state, dx, dy) {
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || (dx === 0 && dy === 0)) return "Bad direction.";
     var tx = state.pos.x + dx, ty = state.pos.y + dy;
+    var tileT = tileAt(state.floor, tx, ty);
+    if (tileT === "B") return "That brazier is already burning.";
+    if (tileT === "b") {
+      // Lighting a brazier costs the shared Move in combat, or one turn while exploring.
+      if (state.status === "combat") {
+        if (state.combat.moved) return "The party has already moved this phase.";
+        state.combat.moved = true;
+        kindle(state, tx, ty);
+        finishAction(state);
+        return null;
+      }
+      kindle(state, tx, ty);
+      state.turn += 1;
+      worldTurn(state); updateVision(state); maybeStartCombat(state);
+      return null;
+    }
     if (state.status === "combat") {
       var actor = currentActor(state);
       if (state.combat.moved) return "The party has already moved this phase (one shared Move per party phase).";
@@ -1388,7 +2079,7 @@
       if (err) return err;
       state.combat.moved = true;
       log(state, actor.name + " leads the party one step.", "info");
-      if (state.combat.slip === actor.id) { state.combat.slip = 0; checkCombatEnd(state); return null; }
+      if (state.combat.slip === actor.id) { state.combat.slip = 0; checkCombatEnd(state, true); return null; }
       finishAction(state);
       return null;
     }
@@ -1435,9 +2126,16 @@
     if (!c) return "No one can act.";
     var why = basicCheck(state, c, e);
     if (why) return why;
-    rollAttack(state, c, e, 1, { basic: true });
+    rollAttack(state, c, redirect(state, e), 1, { basic: true });
     afterAct(state);
     return null;
+  }
+
+  // First visit to a room may surface a short line of flavour.
+  function roomEvent(state, r) {
+    if (!r.text) return;
+    log(state, (r.name ? r.name + ": " : "") + r.text, "story");
+    emit("discover", { what: "event" });
   }
 
   // After an action: in combat, pass the turn; outside combat, attacking a sleeper starts a fight.
@@ -1487,7 +2185,7 @@
     if (err) return err;
     if (A.charges > 0) slot.charges -= 1;
     if (A.noise) makeNoise(state, state.pos.x, state.pos.y, A.noise);
-    if (A.free && state.status === "combat") { checkCombatEnd(state); return null; }
+    if (A.free && state.status === "combat") { checkCombatEnd(state, true); return null; }
     afterAct(state);
     return null;
   }
@@ -1555,6 +2253,7 @@
         conscious(state).forEach(function (m) { healChar(state, c, m, Math.max(4, Math.floor(charStats(m).maxHp * 0.2))); });
         return null;
       case "aimed":
+        e = redirect(state, e);
         if (rollAttack(state, c, e, 2, { acc: 25, pierce: true }) && has(c.upgrades, "up_aimed") && state.floor.enemies.indexOf(e) >= 0) e.st.root = 2;
         return null;
       case "caltrops":
@@ -1581,7 +2280,7 @@
         return null;
       }
       case "ember": {
-        var victims = [e];
+        var victims = [redirect(state, e)];
         if (has(c.upgrades, "up_ember")) {
           victims = [];
           linePoints(px, py, e.x, e.y).forEach(function (p) { var o = enemyAt(state, p[0], p[1]); if (o && !o.hidden) victims.push(o); });
@@ -1610,6 +2309,7 @@
         return null;
       }
       case "chain": {
+        e = redirect(state, e);
         var hitList = [e], cur = e;
         spellHit(state, c, e, rint(rt, 3, 5) + st.wil);
         for (var j = 0; j < 2; j++) {
@@ -1820,6 +2520,106 @@
   }
 
   // ------------------------------------------------------------------
+  // Auto-Explore and Travel. These only choose the next single step through
+  // known tiles; the caller performs it with act({type:"move"}), so each step
+  // costs a world turn and new information can stop the walk.
+  // Known safe tile: seen, walkable, no visible enemy, no known hazard, and outside
+  // the wake radius of a sleeper in view.
+  // ------------------------------------------------------------------
+  function safeBlocker(state, strict) {
+    var f = state.floor, v = vision(state);
+    // Sleepers cannot move, so a sleeper the party has already seen stays where it was remembered.
+    var sleepers = f.enemies.filter(function (e) { return !e.awake && !e.hidden && has(f.noticed, "e" + e.id); });
+    return function (x, y) {
+      if (!isSeen(f, x, y) || !isWalk(f, x, y)) return true;
+      var e = enemyAt(state, x, y);
+      if (e && !e.hidden && (v[idx(x, y)] || has(sleepers, e))) return true;
+      var hz = featureAt(state, x, y, "hazard");
+      if (hz && has(f.noticed, "f" + hz.id)) return true;
+      if (strict) for (var i = 0; i < sleepers.length; i++) if (cheb(sleepers[i].x, sleepers[i].y, x, y) <= (ENEMIES[sleepers[i].type].aware || 0)) return true;
+      return false;
+    };
+  }
+  // Multi-source BFS from the goal tiles; returns the first step from the party.
+  function dirToGoals(state, goals, blocked) {
+    var f = state.floor, d = new Int16Array(MAP_W * MAP_H); d.fill(-1);
+    var q = [];
+    goals.forEach(function (g) { if (isWalk(f, g[0], g[1]) && d[idx(g[0], g[1])] < 0 && (!blocked(g[0], g[1]) || (g[0] === state.pos.x && g[1] === state.pos.y))) { d[idx(g[0], g[1])] = 0; q.push(g[0], g[1]); } });
+    for (var qi = 0; qi < q.length; qi += 2) {
+      var x = q[qi], y = q[qi + 1];
+      if (x === state.pos.x && y === state.pos.y) break;
+      for (var i = 0; i < 8; i++) {
+        var nx = x + DIRS[i][0], ny = y + DIRS[i][1];
+        if (!canStep(f, x, y, DIRS[i][0], DIRS[i][1]) || d[idx(nx, ny)] >= 0) continue;
+        if (blocked(nx, ny) && !(nx === state.pos.x && ny === state.pos.y)) continue;
+        d[idx(nx, ny)] = d[idx(x, y)] + 1; q.push(nx, ny);
+      }
+    }
+    var here = d[idx(state.pos.x, state.pos.y)];
+    if (here <= 0) return null;
+    var best = null, bd = here;
+    for (var k = 0; k < 8; k++) {
+      var dx = DIRS[k][0], dy = DIRS[k][1], tx = state.pos.x + dx, ty = state.pos.y + dy;
+      if (!canStep(f, state.pos.x, state.pos.y, dx, dy)) continue;
+      var dd = d[idx(tx, ty)];
+      if (dd >= 0 && dd < bd) { bd = dd; best = [dx, dy]; }
+    }
+    return best;
+  }
+  function frontierGoals(state) {
+    var f = state.floor, goals = [];
+    for (var y = 1; y < f.h - 1; y++) for (var x = 1; x < f.w - 1; x++) {
+      if (!isSeen(f, x, y) || !isWalk(f, x, y)) continue;
+      for (var i = 0; i < 8; i++) if (!isSeen(f, x + DIRS[i][0], y + DIRS[i][1])) { goals.push([x, y]); break; }
+    }
+    if (state.inventory.length < INV_SIZE) f.items.forEach(function (g) { if (isSeen(f, g.x, g.y) && !(g.x === state.pos.x && g.y === state.pos.y)) goals.push([g.x, g.y]); });
+    return goals;
+  }
+  function adjacentGoals(x, y) { return DIRS.map(function (d) { return [x + d[0], y + d[1]]; }); }
+  function objectiveGoals(state) {
+    var f = state.floor, o = f.objective;
+    var stairsKnown = f.stairs && has(f.noticed, "stairs");
+    if (o.done || o.type === "stairs" || (o.type === "relic" && o.carried)) {
+      if (!stairsKnown) return { why: "You have not found the stairs yet. Try Auto-Explore (E)." };
+      if (onStairs(state)) return { why: o.done ? "You are on the stairs. Press > to descend." : "You are on the sealed stairs: " + objectiveText(state) };
+      return { goals: [[f.stairs.x, f.stairs.y]], label: "the stairs" };
+    }
+    if (o.type === "relic") {
+      var rl = f.features.filter(function (ft) { return ft.kind === "relic" && has(f.noticed, "f" + ft.id); })[0];
+      return rl ? { goals: [[rl.x, rl.y]], label: o.name } : { why: "You have not found " + o.name + " yet. Try Auto-Explore (E)." };
+    }
+    var want = o.type === "gate" ? function (e) { return e.primary; } : o.type === "warden" ? function (e) { return e.type === "warden"; } : function (e) { return e.type === "boss"; };
+    var tgt = f.enemies.filter(function (e) { return want(e) && has(f.noticed, "e" + e.id); })[0];
+    if (!tgt) return { why: "You have not found the " + (o.type === "gate" ? "gate" : o.type === "warden" ? "warden" : "boss") + " yet. Try Auto-Explore (E)." };
+    return { goals: adjacentGoals(tgt.x, tgt.y), label: enemyName(tgt) };
+  }
+  // mode: "explore" | "travel". Returns {dir:[dx,dy]} or {why:"..."}.
+  // By default neither mode walks into a known sleeper's wake radius; opts.allowWake lifts that.
+  function planStep(state, mode, opts) {
+    opts = opts || {};
+    if (state.status === "combat") return { why: "Not during combat." };
+    if (state.status !== "explore") return { why: "The run is over." };
+    if (state.levelQueue.length) return { why: "Choose a level-up reward first." };
+    if (state.offer) return { why: "Decide about the item first." };
+    var strict = safeBlocker(state, true), loose = safeBlocker(state, false), dir;
+    if (mode === "explore") {
+      var goals = frontierGoals(state);
+      if (!goals.length) return { why: "Nothing left to explore on this floor." + (state.floor.objective.done ? " Press G to travel to the stairs." : "") };
+      var sg = goals.filter(function (g) { return !strict(g[0], g[1]); });
+      dir = dirToGoals(state, sg, strict);
+      if (!dir && opts.allowWake) dir = dirToGoals(state, goals, loose);
+      if (dir) return { dir: dir };
+      return { why: dirToGoals(state, goals, loose) ? "The rest of the way passes close to a sleeping foe (z). Walk there yourself, or deal with it." : "No safe known path to unexplored ground. Walk manually." };
+    }
+    var og = objectiveGoals(state);
+    if (og.why) return { why: og.why };
+    dir = dirToGoals(state, og.goals, strict);
+    if (!dir && opts.allowWake) dir = dirToGoals(state, og.goals, loose);
+    if (dir) return { dir: dir, label: og.label };
+    return { why: dirToGoals(state, og.goals, loose) ? "The way to " + og.label + " passes close to a sleeping foe (z). Walk yourself, or deal with it." : "No safe known path to " + og.label + ". Explore more or walk manually." };
+  }
+
+  // ------------------------------------------------------------------
   // Public API
   // ------------------------------------------------------------------
   var Game = {
@@ -1833,7 +2633,9 @@
     enemyAt: enemyAt, enemyById: enemyById, featureAt: featureAt, intentOf: intentOf, statusText: statusText, objectiveText: objectiveText,
     canDescend: canDescend, basicCheck: basicCheck, cheb: cheb, stepTowardTile: stepTowardTile,
     itemName: itemName, itemMods: itemMods, describeItem: describeItem, postCombatRecovery: postCombatRecovery,
-    _internal: { enterFloor: enterFloor, spawnEnemy: spawnEnemy, grantXp: grantXp, floorRecovery: floorRecovery, makeItem: makeItem, endCombat: endCombat, maybeStartCombat: maybeStartCombat, updateVision: updateVision }
+    HAZARDS: HAZARDS, SHRINES: SHRINES, chargeLine: chargeLine, floorTitle: floorTitle, interceptor: interceptor,
+    runPlan: runPlan, makeStory: makeStory, bossPhase: bossPhase, enemyName: enemyName, planStep: planStep,
+    _internal: { rnd: function (s) { return rnext(s.rng.runtime); }, enterTile: enterTileEffects, killEnemy: killEnemy, enterFloor: enterFloor, spawnEnemy: spawnEnemy, grantXp: grantXp, floorRecovery: floorRecovery, makeItem: makeItem, endCombat: endCombat, maybeStartCombat: maybeStartCombat, updateVision: updateVision }
   };
   root.Game = Game;
   if (typeof module !== "undefined" && module.exports) module.exports = Game;
