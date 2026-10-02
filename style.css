@@ -56,7 +56,7 @@ input[type=text] {
 #end-title.lose { color: #e0605a; }
 
 /* ---------- Game layout ---------- */
-#scr-game { display: grid; grid-template-rows: 32px 1fr 112px; }
+#scr-game { display: grid; grid-template-rows: 32px minmax(0, 1fr) 128px; }
 #hud { display: flex; align-items: center; gap: 8px; padding: 0 8px; background: #121016; border-bottom: 1px solid #2c2633;
   white-space: nowrap; overflow: hidden; }
 .hud-title { color: #e9c986; letter-spacing: 2px; font-weight: bold; }
@@ -129,7 +129,8 @@ input[type=text] {
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .l-bad { color: #ff8a7a; } .l-good { color: #8fe0a0; } .l-warn { color: #ffcf6a; } .l-miss { color: #8a8295; }
 .l-hit { color: #e8dfca; } .l-story { color: #c7a8ff; font-style: italic; } .l-combat { color: #ffb070; } .l-info { color: #b5abc0; }
-#info { font-size: 12px; overflow: hidden; color: #c9c0b0; }
+#info { font-size: 12px; overflow-y: auto; color: #c9c0b0; min-height: 0; }
+#info .utilrow button { font-size: 11px; padding: 1px 5px; }
 #info .ttl { color: #ffe2a8; font-weight: bold; }
 
 /* ---------- Modal + tooltip ---------- */
