@@ -64,13 +64,91 @@
   });
   document.addEventListener("focusout", hideTip);
 
+  // ---------- Saving (localStorage is optional; Export Run is the portable backup) ----------
+  var SAVE_KEY = "gloamBelow.autosave.v" + G.SAVE_VERSION;
+  var store = { ok: null, warned: false };
+  function storageWorks() {
+    if (store.ok !== null) return store.ok;
+    try { var k = "gloamBelow.__probe"; window.localStorage.setItem(k, "1"); window.localStorage.removeItem(k); store.ok = true; }
+    catch (e) { store.ok = false; }
+    return store.ok;
+  }
+  function autosave() {
+    if (!state) return;
+    try {
+      if (state.status === "victory" || state.status === "defeat") window.localStorage.removeItem(SAVE_KEY);
+      else window.localStorage.setItem(SAVE_KEY, G.exportRun(state, true));
+      store.ok = true;
+    } catch (e) {
+      store.ok = false;
+      if (!store.warned) { store.warned = true; banner("Autosave is unavailable in this browser for files opened from disk. Use Export to keep a backup.", false); }
+    }
+  }
+  function readAutosave() { try { return window.localStorage.getItem(SAVE_KEY); } catch (e) { return null; } }
+  function storageNotice() {
+    return storageWorks() ? "Your run autosaves in this browser after every action. Export Run makes a portable backup file."
+      : "Local saving is unavailable here (some browsers block it for files opened from disk). The game still works: use Export Run in-game as your reliable backup.";
+  }
+
+  function exportRun() {
+    if (!state) return;
+    try {
+      var txt = G.exportRun(state);
+      var blob = new Blob([txt], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "gloam-below-" + String(state.seed).replace(/[^A-Za-z0-9-]/g, "_") + "-floor" + state.floor.num + "-turn" + state.turn + ".json";
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.parentNode.removeChild(a); }, 1500);
+      banner("Run exported as " + a.download + ".", true);
+    } catch (e) { banner("Export failed: " + (e && e.message), false); }
+  }
+  function startImport() { var f = $("file-import"); f.value = ""; f.click(); }
+  function importFile(file) {
+    if (!file) return;
+    if (file.size > G.MAX_IMPORT_BYTES) { importError("That file is larger than 2 MiB, so it cannot be a run file. Nothing was changed."); return; }
+    var rd = new FileReader();
+    rd.onload = function () {
+      var res = G.importRun(String(rd.result));
+      if (!res.ok) { importError(res.error); return; }
+      stopTravel();
+      state = res.state;
+      autosave();
+      if (state.status === "victory" || state.status === "defeat") { renderEnd(); return; }
+      enterGame(false);
+      banner("Run imported: seed " + state.seed + ", floor " + state.floor.num + ".", true);
+    };
+    rd.onerror = function () { importError("The file could not be read. Nothing was changed."); };
+    rd.readAsText(file);
+  }
+  function importError(msg) {
+    if (ui.screen === "game") banner(msg, false);
+    else { var n = $(ui.screen === "end" ? "end-sub" : "title-notice"); if (ui.screen === "title") n.textContent = msg; else banner(msg, false); }
+  }
+  function continueRun() {
+    if (state && (state.status === "explore" || state.status === "combat")) { enterGame(false); return; }
+    var txt = readAutosave();
+    if (!txt) { $("title-notice").textContent = "No saved run found in this browser. Use Import Run to load an exported file."; return; }
+    var res = G.importRun(txt);
+    if (!res.ok) { $("title-notice").textContent = "The autosave could not be loaded (" + res.error + ") Use Import Run with an exported file."; return; }
+    state = res.state;
+    enterGame(false);
+  }
+
   // ---------- Title ----------
   function renderTitle() {
     show("title");
+    stopTravel();
     var m = $("title-menu"); clear(m);
+    var canContinue = (state && (state.status === "explore" || state.status === "combat")) || !!readAutosave();
     m.appendChild(menuButton("N", "New Game", function () { startCreate(false); }));
+    m.appendChild(menuButton("D", "Daily Dungeon (" + G.dailySeed() + " UTC)", function () { startCreate(true); }));
+    m.appendChild(menuButton("C", "Continue", continueRun, !canContinue));
+    m.appendChild(menuButton("I", "Import Run", startImport));
     m.appendChild(menuButton("H", "Controls / Help", openHelp));
-    var first = m.querySelector("button"); if (first) first.focus();
+    $("title-notice").textContent = storageNotice();
+    var first = m.querySelector("button:not([disabled])"); if (first) first.focus();
   }
   function menuButton(key, label, fn, disabled) {
     var b = el("button"); b.type = "button";
@@ -85,16 +163,45 @@
   var CLASS_ORDER = ["sentinel", "stalker", "arcanist", "votary"];
   function startCreate(daily) {
     ui.daily = !!daily;
-    ui.seed = randomSeed();
+    ui.seedMode = daily ? "daily" : "random";
+    ui.seed = daily ? G.dailySeed() : randomSeed();
+    ui.seedText = "";
     ui.party = [newMember(0, "sentinel")];
     renderCreate();
   }
-  function newMember(i, cls) { return { cls: cls, name: G.suggestName(ui.seed, i, 0), roll: 0 }; }
+  function newMember(i, cls) { return { cls: cls, name: G.suggestName(ui.seed, i, 0), roll: 0, edited: false }; }
+  // Suggested names come from the seed, so a seed change refreshes names the player has not edited.
+  function setSeed(seed) {
+    ui.seed = seed;
+    ui.party.forEach(function (p, i) { if (!p.edited) p.name = G.suggestName(ui.seed, i, p.roll); });
+  }
   function renderCreate() {
     show("create");
+    $("create-title").textContent = ui.daily ? "Daily Dungeon - " + ui.seed + " (UTC)" : "Assemble the Party";
     var seedBox = $("create-seed"); clear(seedBox);
-    seedBox.appendChild(el("span", "", "Run seed: "));
-    seedBox.appendChild(el("b", "", ui.seed));
+    if (ui.daily) {
+      seedBox.appendChild(el("span", "", "Everyone gets the same floors, objectives, foes, loot placement, hazards and shrines today. Seed: "));
+      seedBox.appendChild(el("b", "", ui.seed));
+    } else {
+      var rnd = button("Random seed", function () { ui.seedMode = "random"; setSeed(randomSeed()); renderCreate(); }, ui.seedMode === "random" ? "sel on" : "", "Roll a fresh random seed");
+      var own = button("Enter a seed", function () { ui.seedMode = "custom"; renderCreate(); var i = $("seed-input"); if (i) i.focus(); }, ui.seedMode === "custom" ? "sel on" : "", "Type any seed to replay or share a dungeon");
+      rnd.setAttribute("aria-pressed", ui.seedMode === "random"); own.setAttribute("aria-pressed", ui.seedMode === "custom");
+      seedBox.appendChild(rnd); seedBox.appendChild(own);
+      if (ui.seedMode === "custom") {
+        var inp = el("input"); inp.type = "text"; inp.id = "seed-input"; inp.maxLength = 32; inp.value = ui.seedText; inp.placeholder = "any text, e.g. MOTHWING";
+        inp.setAttribute("aria-label", "Seed");
+        inp.addEventListener("input", function () {
+          ui.seedText = inp.value;
+          var c = G.cleanSeed(inp.value);
+          if (c.ok) { setSeed(c.seed); refreshNames(); }
+          $("create-hint").textContent = c.ok ? "Seed: " + c.seed : c.msg;
+        });
+        seedBox.appendChild(inp);
+      } else {
+        seedBox.appendChild(el("span", "", "Seed: "));
+        seedBox.appendChild(el("b", "", ui.seed));
+      }
+    }
     var box = $("create-members"); clear(box);
     ui.party.forEach(function (p, i) {
       var card = el("div", "member-card");
@@ -105,11 +212,11 @@
       }
       card.appendChild(h);
       var row = el("div", "row");
-      var inp = el("input"); inp.type = "text"; inp.maxLength = 18; inp.value = p.name;
+      var inp = el("input"); inp.type = "text"; inp.maxLength = 18; inp.value = p.name; inp.className = "name-input";
       inp.setAttribute("aria-label", "Name for member " + (i + 1));
-      inp.addEventListener("input", function () { p.name = inp.value; });
+      inp.addEventListener("input", function () { p.name = inp.value; p.edited = true; });
       row.appendChild(inp);
-      row.appendChild(button("Reroll", function () { p.roll += 1; p.name = G.suggestName(ui.seed, i, p.roll); renderCreate(); }, "", "Suggest another name"));
+      row.appendChild(button("Reroll", function () { p.roll += 1; p.edited = false; p.name = G.suggestName(ui.seed, i, p.roll); renderCreate(); }, "", "Suggest another name"));
       card.appendChild(row);
       var pick = el("div", "class-pick");
       CLASS_ORDER.forEach(function (cid) {
@@ -129,12 +236,23 @@
       card.appendChild(d);
       box.appendChild(card);
     });
-    var add = $("btn-add-member");
-    add.hidden = ui.party.length >= 3;
+    $("btn-add-member").hidden = ui.party.length >= 3;
+    $("create-hint").textContent = ui.party.length === 1 ? "A lone delver gets +50% max HP and +1 charge on every limited ability (never extra XP). Creation order sets formation." :
+      "Creation order sets formation: member 1 starts in the front rank. Any mix of classes works; duplicates are fine.";
+  }
+  function refreshNames() {
+    var inputs = document.querySelectorAll("#create-members .name-input");
+    ui.party.forEach(function (p, i) { if (inputs[i] && !p.edited) inputs[i].value = p.name; });
   }
   function beginRun() {
+    if (!ui.daily && ui.seedMode === "custom") {
+      var c = G.cleanSeed(ui.seedText);
+      if (!c.ok) { $("create-hint").textContent = c.msg; return; }
+      ui.seed = c.seed;
+    }
     var party = ui.party.map(function (p) { return { cls: p.cls, name: cleanName(p.name) }; });
     state = G.newRun({ seed: ui.seed, daily: ui.daily, party: party });
+    autosave();
     enterGame(true);
   }
   function cleanName(n) {
@@ -673,7 +791,7 @@
       if (ev.type === "descend") banner("Floor " + state.floor.num + ": " + G.objectiveText(state), true);
     });
     if (state.status !== "combat" && ui.tgt && ui.tgt.combatOnly) ui.tgt = null;
-    if (res.ok) ui.tgt = null;
+    if (res.ok) { ui.tgt = null; autosave(); }
     renderGame();
     return res;
   }
@@ -772,7 +890,9 @@
       .forEach(function (kv) { s.appendChild(el("span", "k", kv[0])); s.appendChild(el("span", "", kv[1])); });
     var m = $("end-menu"); clear(m);
     m.appendChild(menuButton("N", "New Game", function () { startCreate(false); }));
-    m.appendChild(menuButton("T", "Return to Title", renderTitle));
+    m.appendChild(menuButton("D", "Daily Dungeon (" + G.dailySeed() + " UTC)", function () { startCreate(true); }));
+    m.appendChild(menuButton("I", "Import Run", startImport));
+    m.appendChild(menuButton("T", "Return to Title", function () { state = null; renderTitle(); }));
     m.querySelector("button").focus();
   }
 
@@ -792,6 +912,11 @@
   document.addEventListener("keydown", function (ev) {
     if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA")) { if (ev.key === "Escape") ev.target.blur(); return; }
     if (!$("modal").hidden) {
+      if (ev.key === "Enter" && ui.modal === "help") {
+        var fb = document.activeElement && $("modal-box").contains(document.activeElement) && document.activeElement.tagName === "BUTTON" ? document.activeElement : null;
+        if (fb) fb.click(); else closeModal();
+        ev.preventDefault(); return;
+      }
       if (ev.key === "Escape") {
         if (ui.modal === "offer") doAct({ type: "take", leave: true });
         else if (ui.modal === "help") closeModal();
@@ -854,6 +979,8 @@
     travelTo(t.x, t.y);
   });
   $("btn-help").addEventListener("click", openHelp);
+  $("btn-export").addEventListener("click", exportRun);
+  $("file-import").addEventListener("change", function (ev) { importFile(ev.target.files && ev.target.files[0]); });
   $("btn-menu").addEventListener("click", function () { stopTravel(); renderTitle(); });
   $("btn-create-go").addEventListener("click", beginRun);
   $("btn-create-back").addEventListener("click", renderTitle);

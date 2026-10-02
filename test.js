@@ -52,47 +52,49 @@ function slay(s, e) {
   assert(s.floor.enemies.indexOf(e) < 0, "foe should be dead");
 }
 
-// A simple full-game bot used by the complete-run test.
+// A simple deterministic bot: one call = one game action. Used by the full-run and save/restore tests.
+function cheb(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
+function stepBot(s) {
+  if (s.status === "combat") {
+    var c = Game.currentActor(s);
+    var foes = s.floor.enemies.filter(function (e) { return e.awake && !e.hidden && Game.canSee(s, e.x, e.y); })
+      .sort(function (a, b) { return (b.primary || b.type === "boss" ? 1 : 0) - (a.primary || a.type === "boss" ? 1 : 0) || cheb(a, s.pos) - cheb(b, s.pos) || a.id - b.id; });
+    var tgt = foes.filter(function (e) { return !Game.basicCheck(s, c, e); })[0];
+    if (tgt) return Game.act(s, { type: "attack", target: tgt.id });
+    if (!s.combat.moved && foes.length) {
+      var t = foes[0], best = null, bd = 1e9;
+      for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        var nx = s.pos.x + dx, ny = s.pos.y + dy;
+        if (Game.tileAt(s.floor, nx, ny) !== "." || Game.enemyAt(s, nx, ny)) continue;
+        var dd = Math.max(Math.abs(nx - t.x), Math.abs(ny - t.y));
+        if (dd < bd) { bd = dd; best = [dx, dy]; }
+      }
+      var r = best && bd < cheb(t, s.pos) ? Game.act(s, { type: "move", dx: best[0], dy: best[1] }) : null;
+      if (r && r.ok) return r;
+    }
+    return Game.act(s, { type: "rest" });
+  }
+  if (s.levelQueue.length) return Game.act(s, { type: "choose", option: s.levelQueue[0].options[0] });
+  if (s.offer) return Game.act(s, { type: "take", leave: true });
+  if (Game.canDescend(s)) return Game.act(s, { type: "descend" });
+  var p = null;
+  ["travel", "explore"].forEach(function (m) { if (!p) { var q = Game.planStep(s, m); if (q.dir) p = q; } });
+  ["travel", "explore"].forEach(function (m) { if (!p) { var q = Game.planStep(s, m, { allowWake: true }); if (q.dir) p = q; } });
+  return p ? Game.act(s, { type: "move", dx: p.dir[0], dy: p.dir[1] }) : Game.act(s, { type: "rest" });
+}
 function botPlay(seed, partyDef, maxSteps) {
   var s = Game.newRun({ seed: seed, party: partyDef });
   s.flags.godMode = true; // controlled advantage: the bot cannot be killed
-  var steps = 0, objectivesDone = 0, floorsSeen = {};
-  function cheb(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
+  var steps = 0, objectivesDone = 0;
   while (s.status !== "victory" && s.status !== "defeat" && steps++ < maxSteps) {
-    floorsSeen[s.floor.num] = true;
-    var r;
-    if (s.status === "combat") {
-      var c = Game.currentActor(s);
-      var foes = s.floor.enemies.filter(function (e) { return e.awake && !e.hidden && Game.canSee(s, e.x, e.y); })
-        .sort(function (a, b) { return (b.primary || b.type === "boss" ? 1 : 0) - (a.primary || a.type === "boss" ? 1 : 0) || cheb(a, s.pos) - cheb(b, s.pos) || a.id - b.id; });
-      var tgt = foes.filter(function (e) { return !Game.basicCheck(s, c, e); })[0];
-      if (tgt) r = Game.act(s, { type: "attack", target: tgt.id });
-      else if (!s.combat.moved && foes.length) {
-        var t = foes[0], best = null, bd = 1e9;
-        for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) {
-          if (!dx && !dy) continue;
-          var nx = s.pos.x + dx, ny = s.pos.y + dy;
-          if (Game.tileAt(s.floor, nx, ny) !== "." || Game.enemyAt(s, nx, ny)) continue;
-          var dd = Math.max(Math.abs(nx - t.x), Math.abs(ny - t.y));
-          if (dd < bd) { bd = dd; best = [dx, dy]; }
-        }
-        r = best && bd < cheb(t, s.pos) ? Game.act(s, { type: "move", dx: best[0], dy: best[1] }) : Game.act(s, { type: "rest" });
-        if (!r.ok) r = Game.act(s, { type: "rest" });
-      } else r = Game.act(s, { type: "rest" });
-    } else {
-      if (s.levelQueue.length) { Game.act(s, { type: "choose", option: s.levelQueue[0].options[0] }); continue; }
-      if (s.offer) { Game.act(s, { type: "take", leave: true }); continue; }
-      if (Game.canDescend(s)) { objectivesDone++; Game.act(s, { type: "descend" }); continue; }
-      var p = null, o = s.floor.objective;
-      ["travel", "explore"].forEach(function (m) { if (!p) { var q = Game.planStep(s, m); if (q.dir) p = q; } });
-      ["travel", "explore"].forEach(function (m) { if (!p) { var q = Game.planStep(s, m, { allowWake: true }); if (q.dir) p = q; } });
-      r = p ? Game.act(s, { type: "move", dx: p.dir[0], dy: p.dir[1] }) : Game.act(s, { type: "rest" });
-    }
+    var floor = s.floor.num;
+    var r = stepBot(s);
+    if (s.floor.num > floor) objectivesDone++;
     if (r && !r.ok && /Internal/.test(r.msg)) throw new Error(r.msg);
   }
-  return { s: s, steps: steps, objectivesDone: objectivesDone, floorsSeen: Object.keys(floorsSeen).length };
+  return { s: s, steps: steps, objectivesDone: objectivesDone };
 }
-
 console.log("The Gloam Below - logic tests (generator " + Game.GEN_VERSION + ")");
 
 // ---------------------------------------------------------------- generation
@@ -423,6 +425,137 @@ test("12. walking, waiting and resting cannot produce health or charge recovery"
   eq(c0.hp, Math.floor(mx * 0.5));
 });
 
+// ---------------------------------------------------------------- saves
+// Start a fight on an untouched generated floor (layout must stay valid for import).
+function realFight(s, types) {
+  s.floor.enemies = [];
+  var spots = [];
+  for (var y = 0; y < s.floor.h; y++) for (var x = 0; x < s.floor.w; x++) {
+    var d = Math.max(Math.abs(x - s.pos.x), Math.abs(y - s.pos.y));
+    if (d >= 1 && d <= 4 && Game.tileAt(s.floor, x, y) === "." && Game.canSee(s, x, y)) spots.push([d, x, y]);
+  }
+  spots.sort(function (a, b) { return a[0] - b[0] || a[2] - b[2] || a[1] - b[1]; });
+  types.forEach(function (t, i) { var sp = spots[i]; I.spawnEnemy(s, t, sp[1], sp[2], {}); });
+  I.updateVision(s); I.maybeStartCombat(s);
+}
+function playedRun(seed, partyDef, steps) {
+  var s = Game.newRun({ seed: seed, party: partyDef });
+  s.flags.godMode = true;
+  for (var k = 0; k < steps && s.status !== "victory"; k++) stepBot(s);
+  s.flags = {};
+  return s;
+}
+
+test("4. export/import preserves essential state and all RNG state", function () {
+  [[1, 120], [2, 400], [3, 900]].forEach(function (cfg) {
+    var s = playedRun("save-" + cfg[0], party(cfg[0], ["votary", "arcanist", "sentinel"]), cfg[1]);
+    var txt = Game.exportRun(s);
+    var o = JSON.parse(txt);
+    ["saveVersion", "genVersion", "seed", "rng", "party", "inventory", "floor", "pos", "combat", "story", "status", "levelQueue", "turn", "nextId"].forEach(function (k) {
+      assert(k in o, "export contains " + k);
+    });
+    var r = Game.importRun(txt);
+    assert(r.ok, "import ok: " + r.error);
+    eq(JSON.stringify(r.state), JSON.stringify(s), "round trip is exact");
+    eq(r.state.rng.runtime.join(","), s.rng.runtime.join(","), "runtime RNG state");
+    eq(r.state.floor.seen.join(""), s.floor.seen.join(""), "fog of war");
+  });
+  // Mid-combat snapshot keeps round, actor and turn state.
+  var c = Game.newRun({ seed: "save-combat", party: party(3) });
+  realFight(c, ["archer", "gnawer"]);
+  eq(c.status, "combat");
+  actOk(c, { type: "rest" });
+  c.flags = {};
+  var rc = Game.importRun(Game.exportRun(c));
+  assert(rc.ok, rc.error);
+  eq(rc.state.status, "combat"); eq(rc.state.combat.actor, 1); eq(rc.state.combat.round, c.combat.round);
+});
+
+test("5. after restoring a save, future combat and loot outcomes match the uninterrupted run", function () {
+  var a = playedRun("cont-1", party(3, ["stalker", "sentinel", "votary"]), 350);
+  var snap = Game.exportRun(a);
+  var b = Game.importRun(snap).state;
+  a.flags.godMode = true; b.flags.godMode = true;
+  var logA = [], logB = [];
+  for (var k = 0; k < 700; k++) {
+    var ra = stepBot(a), rb = stepBot(b);
+    logA.push(JSON.stringify(ra.events)); logB.push(JSON.stringify(rb.events));
+  }
+  eq(logA.join("|"), logB.join("|"), "event streams identical");
+  a.flags = {}; b.flags = {};
+  eq(JSON.stringify(a), JSON.stringify(b), "states identical after 700 more actions");
+  // Also from inside a fight.
+  var c = Game.newRun({ seed: "cont-2", party: party(2) });
+  realFight(c, ["gnawer", "archer", "ooze"]);
+  c.flags = {};
+  var restored = Game.importRun(Game.exportRun(c));
+  assert(restored.ok, restored.error);
+  var d = restored.state;
+  for (var j = 0; j < 30; j++) { stepBot(c); stepBot(d); }
+  eq(JSON.stringify(c), JSON.stringify(d), "combat continuation identical");
+});
+
+test("9. malformed, incompatible, oversized and invalid imports are rejected without altering the current game", function () {
+  var cur = playedRun("guard", party(2), 200);
+  var before = JSON.stringify(cur);
+  var good = JSON.parse(Game.exportRun(cur));
+  function mut(fn) { var o = clone(good); fn(o); return JSON.stringify(o); }
+  var bad = {
+    "not json": "{ this is not json",
+    "empty": "",
+    "array": "[]",
+    "wrong format": mut(function (o) { o.format = "something-else"; }),
+    "old save version": mut(function (o) { o.saveVersion = 0; }),
+    "other generator": mut(function (o) { o.genVersion = "GB-GEN-0"; }),
+    "missing party": mut(function (o) { delete o.party; }),
+    "four members": mut(function (o) { o.party.push(clone(o.party[0])); }),
+    "unknown class": mut(function (o) { o.party[0].cls = "bard"; }),
+    "hp over max": mut(function (o) { o.party[0].hp = 99999; }),
+    "negative xp": mut(function (o) { o.party[0].xp = -5; }),
+    "level/xp mismatch": mut(function (o) { o.party[0].level = 9; }),
+    "charges over max": mut(function (o) { o.party[0].abilities[0].charges = 99; }),
+    "foreign ability": mut(function (o) { o.party[0].abilities[0].id = o.party[0].cls === "arcanist" ? "mend" : "ember"; }),
+    "17 items": mut(function (o) { o.inventory = []; for (var i = 0; i < 17; i++) o.inventory.push({ id: 900000 + i, base: "draught", rarity: "common", affixes: [] }); }),
+    "unknown item": mut(function (o) { o.inventory = [{ id: 999999, base: "laser", rarity: "common", affixes: [] }]; }),
+    "fake unique": mut(function (o) { o.inventory = [{ id: 999999, base: "sword", rarity: "unique", affixes: [] }]; }),
+    "rng wrong length": mut(function (o) { o.rng.runtime = [1, 2, 3]; }),
+    "rng not numbers": mut(function (o) { o.rng.runtime = ["a", "b", "c", "d"]; }),
+    "party inside wall": mut(function (o) { var f = o.floor; outer: for (var y = 0; y < f.h; y++) for (var x = 0; x < f.w; x++) if (f.tiles[y][x] === "#") { o.pos = { x: x, y: y }; break outer; } }),
+    "tampered layout": mut(function (o) { var r = o.floor.tiles[1]; o.floor.tiles[1] = (r[1] === "#" ? "." : "#") + r.slice(1); o.floor.tiles[1] = r.slice(0, 1) + (r[1] === "#" ? "." : "#") + r.slice(2); }),
+    "bad map row": mut(function (o) { o.floor.tiles[0] = "<script>"; }),
+    "floor 99": mut(function (o) { o.floor.num = 99; }),
+    "story mismatch": mut(function (o) { o.story.boss = "Someone Else"; }),
+    "html name with control chars": mut(function (o) { o.party[0].name = "\u0001<img src=x onerror=alert(1)>"; }),
+    "overlong name": mut(function (o) { o.party[0].name = new Array(200).join("A"); }),
+    "unexpected field": mut(function (o) { o.evil = "function(){}"; }),
+    "debug flag": mut(function (o) { o.flags = { godMode: true }; }),
+    "combat without combat state": mut(function (o) { o.status = "combat"; o.combat = null; }),
+    "status junk": mut(function (o) { o.status = "winning"; }),
+    "proto pollution": Game.exportRun(cur).replace('"format"', '"__proto__": {"polluted": true}, "format"'),
+    "oversized": "{\"pad\":\"" + new Array(Game.MAX_IMPORT_BYTES + 10).join("x") + "\"}"
+  };
+  Object.keys(bad).forEach(function (k) {
+    var r = Game.importRun(bad[k]);
+    assert(!r.ok, "should reject: " + k);
+    assert(typeof r.error === "string" && r.error.length > 10, "helpful message for " + k);
+  });
+  assert(/2 MiB/.test(Game.importRun(bad.oversized).error), "size message mentions the limit");
+  assert(({}).polluted === undefined, "no prototype pollution");
+  eq(JSON.stringify(cur), before, "the current game is untouched");
+  assert(Game.importRun(Game.exportRun(cur)).ok, "the untouched game still exports cleanly");
+});
+
+test("seeds: entered seeds are cleaned; daily seed is the UTC date; daily runs are identical for everyone", function () {
+  eq(Game.dailySeed(new Date(Date.UTC(2026, 9, 2, 23, 30))), "2026-10-02");
+  eq(Game.dailySeed(new Date(Date.UTC(2026, 0, 5, 0, 1))), "2026-01-05");
+  assert(!Game.cleanSeed("   ").ok); assert(!Game.cleanSeed(new Array(40).join("x")).ok);
+  eq(Game.cleanSeed("  Moth Wing ").seed, "Moth Wing");
+  var d = Game.dailySeed(new Date(Date.UTC(2026, 9, 2)));
+  var a = Game.newRun({ seed: d, daily: true, party: party(2) }), b = Game.newRun({ seed: d, daily: true, party: party(2) });
+  eq(JSON.stringify(a.floor), JSON.stringify(b.floor), "same daily floor");
+  eq(Game.suggestName(d, 0, 0), Game.suggestName(d, 0, 0), "same suggested names");
+  for (var n = 1; n <= Game.LAST_FLOOR; n++) eq(JSON.stringify(Game.generateFloor(d, n)), JSON.stringify(Game.generateFloor(d, n)));
+});
 // ---------------------------------------------------------------- full game
 test("10. simulated complete game: a bot clears every floor objective, defeats the boss and reaches victory", function () {
   [["stalker", "sentinel", "votary"], ["arcanist"]].forEach(function (cls, k) {

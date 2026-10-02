@@ -2620,6 +2620,306 @@
   }
 
   // ------------------------------------------------------------------
+  // Seeds
+  // ------------------------------------------------------------------
+  function cleanSeed(str) {
+    var s = String(str === undefined || str === null ? "" : str).replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    if (!s) return { ok: false, msg: "Enter a seed (any text up to 32 characters)." };
+    if (s.length > 32) return { ok: false, msg: "Seeds are limited to 32 characters." };
+    return { ok: true, seed: s };
+  }
+  // Daily Dungeon seed: the UTC calendar date as YYYY-MM-DD.
+  function dailySeed(date) {
+    var d = date || new Date();
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getUTCFullYear() + "-" + p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate());
+  }
+
+  // ------------------------------------------------------------------
+  // Save / export / import. The snapshot is the whole state as plain JSON,
+  // including the runtime RNG's internal state, so a restored run continues
+  // with identical future rolls. Imports are fully validated before use.
+  // ------------------------------------------------------------------
+  var MAX_IMPORT_BYTES = 2 * 1024 * 1024;
+  function exportRun(state, compact) {
+    return JSON.stringify(state, null, compact ? 0 : 1);
+  }
+  function utf8Length(str) {
+    var n = 0;
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if (c < 0x80) n += 1; else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c <= 0xdbff) { n += 4; i++; } else n += 3;
+      if (n > MAX_IMPORT_BYTES) return n;
+    }
+    return n;
+  }
+
+  // Tiny schema helpers. Each returns nothing; problems are pushed into errs.
+  function V(errs) { this.errs = errs; }
+  V.prototype.fail = function (path, msg) { if (this.errs.length < 12) this.errs.push(path + ": " + msg); return false; };
+  V.prototype.obj = function (v, path, allowed, required) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return this.fail(path, "must be an object");
+    for (var k in v) if (Object.prototype.hasOwnProperty.call(v, k) && allowed.indexOf(k) < 0) return this.fail(path, "unexpected field '" + String(k).slice(0, 20) + "'");
+    for (var i = 0; i < (required || []).length; i++) if (!Object.prototype.hasOwnProperty.call(v, required[i])) return this.fail(path, "missing '" + required[i] + "'");
+    return true;
+  };
+  V.prototype.int = function (v, path, lo, hi) {
+    if (typeof v !== "number" || !isFinite(v) || Math.floor(v) !== v) return this.fail(path, "must be a whole number");
+    if (v < lo || v > hi) return this.fail(path, "out of range (" + lo + "-" + hi + ")");
+    return true;
+  };
+  V.prototype.bool = function (v, path) { return typeof v === "boolean" || this.fail(path, "must be true/false"); };
+  V.prototype.str = function (v, path, max, min) {
+    if (typeof v !== "string") return this.fail(path, "must be text");
+    if (v.length < (min || 0) || v.length > max) return this.fail(path, "text length out of range");
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v)) return this.fail(path, "contains control characters");
+    return true;
+  };
+  V.prototype.oneOf = function (v, path, list) { return list.indexOf(v) >= 0 || this.fail(path, "unknown value '" + String(v).slice(0, 24) + "'"); };
+  V.prototype.arr = function (v, path, max) { return (Array.isArray(v) && v.length <= max) || this.fail(path, "must be a list of at most " + max); };
+  V.prototype.rows = function (v, path, chars) {
+    if (!this.arr(v, path, MAP_H) || v.length !== MAP_H) return this.fail(path, "must have " + MAP_H + " rows");
+    var re = new RegExp("^[" + chars + "]{" + MAP_W + "}$");
+    for (var i = 0; i < v.length; i++) if (typeof v[i] !== "string" || !re.test(v[i])) return this.fail(path + "[" + i + "]", "bad map row");
+    return true;
+  };
+
+  var STATUS_KEYS = ["stun", "root", "blind", "hex", "shroud", "dot", "dotT", "taunt", "tauntT", "censure", "guard", "braced", "ward", "wardT", "fade"];
+  function checkStatus(v, st, path) {
+    if (!v.obj(st, path, STATUS_KEYS)) return;
+    for (var k in st) v.int(st[k], path + "." + k, 0, 100000);
+  }
+  function checkItem(v, it, path, ids) {
+    if (!v.obj(it, path, ["id", "base", "rarity", "affixes"], ["id", "base", "rarity", "affixes"])) return;
+    v.int(it.id, path + ".id", 1, 1e9);
+    if (ids[it.id]) v.fail(path + ".id", "duplicate id"); ids[it.id] = 1;
+    if (!v.oneOf(it.base, path + ".base", Object.keys(ITEMS))) return;
+    var I = ITEMS[it.base];
+    if (!v.oneOf(it.rarity, path + ".rarity", Object.keys(RARITY))) return;
+    if ((it.rarity === "unique") !== !!I.unique) v.fail(path + ".rarity", "rarity does not match the item");
+    if (!v.arr(it.affixes, path + ".affixes", 2)) return;
+    if ((I.unique || I.slot === "use") && it.affixes.length) v.fail(path + ".affixes", "this item cannot have affixes");
+    if (it.affixes.length > RARITY[it.rarity].affixes && it.rarity !== "common") v.fail(path + ".affixes", "too many affixes for rarity");
+    if (it.rarity === "common" && it.affixes.length) v.fail(path + ".affixes", "common items have no affixes");
+    it.affixes.forEach(function (a, i) {
+      var p = path + ".affixes[" + i + "]";
+      if (!Array.isArray(a) || a.length !== 2) { v.fail(p, "must be [affix, value]"); return; }
+      if (!v.oneOf(a[0], p, Object.keys(AFFIXES))) return;
+      var A = AFFIXES[a[0]];
+      if (A.slots.indexOf(I.slot) < 0) v.fail(p, "affix not allowed on this slot");
+      v.int(a[1], p + ".value", A.r[0], A.r[1] + 1);
+    });
+  }
+
+  function validateState(o) {
+    var errs = [], v = new V(errs);
+    var TOP = ["format", "saveVersion", "genVersion", "seed", "daily", "status", "turn", "nextId", "rng", "party", "inventory", "floor", "pos",
+      "combat", "levelQueue", "offer", "uniquesFound", "story", "log", "stats", "flags"];
+    if (!o || typeof o !== "object" || Array.isArray(o) || o.format !== "gloam-below-run") { v.fail("format", "this is not a Gloam Below run file"); return errs; }
+    if (o.saveVersion !== SAVE_VERSION) { v.fail("saveVersion", "save format " + String(o.saveVersion).slice(0, 10) + " is not supported (expected " + SAVE_VERSION + ")"); return errs; }
+    if (o.genVersion !== GEN_VERSION) { v.fail("genVersion", "made with dungeon generator " + String(o.genVersion).slice(0, 20) + "; this game uses " + GEN_VERSION + " and would build different floors"); return errs; }
+    if (!v.obj(o, "save", TOP, TOP)) return errs;
+    if (o.saveVersion !== SAVE_VERSION) { v.fail("saveVersion", "save format " + o.saveVersion + " is not supported (expected " + SAVE_VERSION + ")"); return errs; }
+    if (o.genVersion !== GEN_VERSION) { v.fail("genVersion", "made with dungeon generator " + String(o.genVersion).slice(0, 20) + "; this game uses " + GEN_VERSION + " and would build different floors"); return errs; }
+    if (!v.str(o.seed, "seed", 32, 1)) return errs;
+    v.bool(o.daily, "daily");
+    v.oneOf(o.status, "status", ["explore", "combat", "victory", "defeat"]);
+    v.int(o.turn, "turn", 0, 1e9); v.int(o.nextId, "nextId", 0, 1e9);
+    if (v.obj(o.rng, "rng", ["runtime"], ["runtime"])) {
+      var r = o.rng.runtime;
+      if (!Array.isArray(r) || r.length !== 4) v.fail("rng.runtime", "must be 4 numbers");
+      else { r.forEach(function (x, i) { v.int(x, "rng.runtime[" + i + "]", 0, 4294967295); }); if (r.every(function (x) { return x === 0; })) v.fail("rng.runtime", "invalid all-zero state"); }
+    }
+    if (v.obj(o.flags, "flags", [])) { /* no debug flags in imported runs */ }
+    var ids = {};
+    // Party
+    var partyIds = [];
+    if (v.arr(o.party, "party", 3) && o.party.length >= 1) {
+      o.party.forEach(function (c, i) {
+        var p = "party[" + i + "]";
+        if (!v.obj(c, p, ["id", "name", "cls", "level", "xp", "hp", "down", "bonus", "upgrades", "st", "abilities", "equip", "solo"],
+          ["id", "name", "cls", "level", "xp", "hp", "down", "bonus", "upgrades", "st", "abilities", "equip"])) return;
+        v.int(c.id, p + ".id", 1, 1e9);
+        if (ids[c.id]) v.fail(p + ".id", "duplicate id"); ids[c.id] = 1; partyIds.push(c.id);
+        v.str(c.name, p + ".name", 24, 1);
+        if (!v.oneOf(c.cls, p + ".cls", Object.keys(CLASSES))) return;
+        v.int(c.level, p + ".level", 1, MAX_LEVEL); v.int(c.xp, p + ".xp", 0, 1e7);
+        v.bool(c.down, p + ".down");
+        if (c.solo !== undefined) { v.bool(c.solo, p + ".solo"); if (c.solo && o.party.length !== 1) v.fail(p + ".solo", "only a lone character can be solo"); }
+        if (v.obj(c.bonus, p + ".bonus", ["hp", "pow", "wil", "arm", "acc", "eva"], ["hp", "pow", "wil", "arm", "acc", "eva"])) for (var bk in c.bonus) v.int(c.bonus[bk], p + ".bonus." + bk, 0, 200);
+        if (v.arr(c.upgrades, p + ".upgrades", 40)) c.upgrades.forEach(function (u, k) {
+          if (v.oneOf(u, p + ".upgrades[" + k + "]", Object.keys(UPGRADES))) {
+            if (UPGRADES[u].cls !== c.cls) v.fail(p + ".upgrades[" + k + "]", "belongs to another class");
+            if (c.upgrades.indexOf(u) !== k) v.fail(p + ".upgrades[" + k + "]", "duplicate upgrade");
+          }
+        });
+        checkStatus(v, c.st, p + ".st");
+        if (v.obj(c.equip, p + ".equip", SLOTS, SLOTS)) SLOTS.forEach(function (sl) {
+          var it = c.equip[sl];
+          if (it === null) return;
+          checkItem(v, it, p + ".equip." + sl, ids);
+          if (ITEMS[it.base] && ITEMS[it.base].slot !== sl) v.fail(p + ".equip." + sl, "item does not fit this slot");
+        });
+        if (errs.length) return;
+        var learned = CLASSES[c.cls].abilities.slice();
+        c.upgrades.forEach(function (u) { if (UPGRADES[u].kind === "learn") learned.push(UPGRADES[u].ability); });
+        if (v.arr(c.abilities, p + ".abilities", 8)) c.abilities.forEach(function (a, k) {
+          var ap = p + ".abilities[" + k + "]";
+          if (!v.obj(a, ap, ["id", "charges"], ["id", "charges"])) return;
+          if (!v.oneOf(a.id, ap + ".id", learned)) return;
+          v.int(a.charges, ap + ".charges", 0, abilityMax(c, a.id));
+        });
+        if (!errs.length && c.abilities.length !== learned.length) v.fail(p + ".abilities", "does not match the class and learned abilities");
+        if (!errs.length) {
+          var mx = charStats(c).maxHp;
+          v.int(c.hp, p + ".hp", 0, mx);
+          if (c.down && c.hp !== 0) v.fail(p + ".hp", "downed characters have 0 HP");
+          if (!c.down && c.hp < 1) v.fail(p + ".hp", "conscious characters need at least 1 HP");
+          var lv = 1; while (lv < MAX_LEVEL && c.xp >= XP_TABLE[lv]) lv++;
+          if (lv !== c.level) v.fail(p + ".level", "does not match the character's XP");
+        }
+      });
+    } else v.fail("party", "must have 1 to 3 members");
+    if (errs.length) return errs;
+    if (v.arr(o.inventory, "inventory", INV_SIZE)) o.inventory.forEach(function (it, i) { checkItem(v, it, "inventory[" + i + "]", ids); });
+    if (v.arr(o.uniquesFound, "uniquesFound", UNIQUE_IDS.length)) o.uniquesFound.forEach(function (u, i) { v.oneOf(u, "uniquesFound[" + i + "]", UNIQUE_IDS); });
+    // Story must be the one this seed generates.
+    if (JSON.stringify(o.story) !== JSON.stringify(makeStory(o.seed))) v.fail("story", "does not match the run seed");
+    // Floor
+    var f = o.floor;
+    var FKEYS = ["num", "theme", "w", "h", "tiles", "polar", "seen", "rooms", "stairs", "objective", "enemies", "items", "features", "noticed"];
+    if (!v.obj(f, "floor", FKEYS, FKEYS)) return errs;
+    if (!v.int(f.num, "floor.num", 1, LAST_FLOOR)) return errs;
+    if (f.w !== MAP_W || f.h !== MAP_H) { v.fail("floor", "wrong map size"); return errs; }
+    v.rows(f.tiles, "floor.tiles", "#.bB"); v.rows(f.polar, "floor.polar", ".LD"); v.rows(f.seen, "floor.seen", "01");
+    if (errs.length) return errs;
+    var def;
+    try { def = generateFloor(o.seed, f.num); } catch (ex) { v.fail("floor", "cannot rebuild this floor"); return errs; }
+    if (f.theme !== def.theme) v.fail("floor.theme", "does not match the seed");
+    for (var y = 0; y < MAP_H; y++) if (f.tiles[y].replace(/B/g, "b") !== def.tiles[y]) { v.fail("floor.tiles", "layout does not match the seed and generator"); break; }
+    if (JSON.stringify(f.stairs) !== JSON.stringify(def.stairs)) v.fail("floor.stairs", "does not match the seed");
+    if (v.arr(f.rooms, "floor.rooms", 40)) f.rooms.forEach(function (rm, i) {
+      if (v.obj(rm, "floor.rooms[" + i + "]", ["x", "y", "w", "h", "visited"], ["x", "y", "w", "h", "visited"])) {
+        v.int(rm.x, "room.x", 0, MAP_W); v.int(rm.y, "room.y", 0, MAP_H); v.int(rm.w, "room.w", 1, MAP_W); v.int(rm.h, "room.h", 1, MAP_H); v.bool(rm.visited, "room.visited");
+      }
+    });
+    var ob = f.objective;
+    if (v.obj(ob, "floor.objective", ["type", "done", "carried", "name"], ["type", "done"])) {
+      if (ob.type !== def.objective.type) v.fail("floor.objective.type", "does not match the seed");
+      v.bool(ob.done, "floor.objective.done");
+      if (ob.carried !== undefined) v.bool(ob.carried, "floor.objective.carried");
+      if (ob.name !== undefined && ob.name !== def.objective.name) v.fail("floor.objective.name", "does not match the seed");
+    }
+    function inB(x, y) { return typeof x === "number" && typeof y === "number" && x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && Math.floor(x) === x && Math.floor(y) === y; }
+    function walk(x, y) { return inB(x, y) && f.tiles[y].charAt(x) === "."; }
+    var EKEYS = ["id", "type", "x", "y", "hp", "maxHp", "awake", "alerted", "hidden", "st", "xp", "cd", "spawned", "primary", "name", "from", "ward",
+      "charge", "swell", "sweep", "nova", "phase", "summons", "casts", "lx", "ly"];
+    var occupied = {};
+    if (v.arr(f.enemies, "floor.enemies", 200)) f.enemies.forEach(function (e, i) {
+      var p = "floor.enemies[" + i + "]";
+      if (!v.obj(e, p, EKEYS, ["id", "type", "x", "y", "hp", "maxHp", "awake", "alerted", "hidden", "st", "xp"])) return;
+      v.int(e.id, p + ".id", 1, 1e9); if (ids[e.id]) v.fail(p + ".id", "duplicate id"); ids[e.id] = 1;
+      v.oneOf(e.type, p + ".type", Object.keys(ENEMIES));
+      if (!walk(e.x, e.y)) v.fail(p, "stands somewhere impossible");
+      if (occupied[e.x + "," + e.y]) v.fail(p, "shares a tile"); occupied[e.x + "," + e.y] = 1;
+      v.int(e.maxHp, p + ".maxHp", 1, 10000); v.int(e.hp, p + ".hp", 1, e.maxHp);
+      v.bool(e.awake, p + ".awake"); v.bool(e.alerted, p + ".alerted"); v.bool(e.hidden, p + ".hidden");
+      v.int(e.xp, p + ".xp", 0, ENEMIES[e.type] ? ENEMIES[e.type].xp : 0);
+      checkStatus(v, e.st, p + ".st");
+      ["cd", "spawned", "from", "ward", "swell", "sweep", "phase", "summons", "casts", "lx", "ly"].forEach(function (k) { if (e[k] !== undefined) v.int(e[k], p + "." + k, -1, 1e9); });
+      if (e.primary !== undefined) v.bool(e.primary, p + ".primary");
+      if (e.name !== undefined) v.str(e.name, p + ".name", 80, 1);
+      if (e.charge !== undefined && (!v.obj(e.charge, p + ".charge", ["dx", "dy"], ["dx", "dy"]) || !v.int(e.charge.dx, p + ".charge.dx", -1, 1) || !v.int(e.charge.dy, p + ".charge.dy", -1, 1))) return;
+      if (e.nova !== undefined && v.obj(e.nova, p + ".nova", ["x", "y"], ["x", "y"]) && !inB(e.nova.x, e.nova.y)) v.fail(p + ".nova", "off the map");
+    });
+    if (v.arr(f.items, "floor.items", 200)) f.items.forEach(function (g, i) {
+      var p = "floor.items[" + i + "]";
+      if (!v.obj(g, p, ["x", "y", "item"], ["x", "y", "item"])) return;
+      if (!walk(g.x, g.y)) v.fail(p, "lies somewhere impossible");
+      checkItem(v, g.item, p + ".item", ids);
+    });
+    if (v.arr(f.features, "floor.features", 100)) f.features.forEach(function (ft, i) {
+      var p = "floor.features[" + i + "]";
+      if (!v.obj(ft, p, ["id", "kind", "x", "y", "sub", "dmg", "used"], ["id", "kind", "x", "y"])) return;
+      v.int(ft.id, p + ".id", 1, 1e9); if (ids[ft.id]) v.fail(p + ".id", "duplicate id"); ids[ft.id] = 1;
+      v.oneOf(ft.kind, p + ".kind", ["caltrops", "hazard", "shrine", "relic"]);
+      if (!walk(ft.x, ft.y)) v.fail(p, "placed somewhere impossible");
+      if (ft.kind === "hazard") v.oneOf(ft.sub, p + ".sub", Object.keys(HAZARDS));
+      if (ft.kind === "shrine") { v.oneOf(ft.sub, p + ".sub", Object.keys(SHRINES)); v.bool(ft.used, p + ".used"); }
+      if (ft.dmg !== undefined) v.int(ft.dmg, p + ".dmg", 0, 100);
+    });
+    if (v.arr(f.noticed, "floor.noticed", 3000)) f.noticed.forEach(function (k, i) { v.str(k, "floor.noticed[" + i + "]", 24, 1); });
+    // Position, combat and pending choices
+    if (v.obj(o.pos, "pos", ["x", "y"], ["x", "y"])) {
+      if (!walk(o.pos.x, o.pos.y)) v.fail("pos", "the party stands somewhere impossible");
+      else if (occupied[o.pos.x + "," + o.pos.y]) v.fail("pos", "the party shares a tile with an enemy");
+    }
+    if (o.status === "combat") {
+      var cb = o.combat;
+      if (v.obj(cb, "combat", ["round", "actor", "moved", "slip", "acted", "foes", "wall"], ["round", "actor", "moved", "slip", "acted", "foes"])) {
+        v.int(cb.round, "combat.round", 1, 1e7);
+        if (v.int(cb.actor, "combat.actor", 0, o.party.length - 1) && o.party[cb.actor].down) v.fail("combat.actor", "the acting character is downed");
+        v.bool(cb.moved, "combat.moved"); v.int(cb.slip, "combat.slip", 0, 1e9);
+        if (cb.wall !== undefined) v.bool(cb.wall, "combat.wall");
+        if (v.arr(cb.acted, "combat.acted", 3)) cb.acted.forEach(function (id) { if (partyIds.indexOf(id) < 0) v.fail("combat.acted", "unknown character"); });
+        if (v.arr(cb.foes, "combat.foes", 400)) cb.foes.forEach(function (id, i) { v.int(id, "combat.foes[" + i + "]", 1, 1e9); });
+        if (!errs.length && cb.acted.indexOf(o.party[cb.actor].id) >= 0) v.fail("combat.actor", "has already acted");
+      }
+    } else if (o.combat !== null) v.fail("combat", "must be empty outside combat");
+    if (o.status !== "defeat" && o.party.every(function (c) { return c.down; })) v.fail("party", "everyone is downed but the run is not over");
+    if (v.arr(o.levelQueue, "levelQueue", 30)) o.levelQueue.forEach(function (q, i) {
+      var p = "levelQueue[" + i + "]";
+      if (!v.obj(q, p, ["charId", "options"], ["charId", "options"])) return;
+      if (partyIds.indexOf(q.charId) < 0) v.fail(p, "unknown character");
+      if (v.arr(q.options, p + ".options", 3)) q.options.forEach(function (u) { v.oneOf(u, p + ".options", Object.keys(UPGRADES)); });
+    });
+    if (o.offer !== null) {
+      if (v.obj(o.offer, "offer", ["itemId"], ["itemId"]) && !f.items.some(function (g) { return g.item && g.item.id === o.offer.itemId; })) v.fail("offer", "refers to a missing item");
+    }
+    if (v.arr(o.log, "log", 200)) o.log.forEach(function (l, i) {
+      if (!v.obj(l, "log[" + i + "]", ["t", "k", "m"], ["t", "k", "m"])) return;
+      v.int(l.t, "log.t", 0, 1e9); v.oneOf(l.k, "log.k", ["info", "good", "bad", "warn", "miss", "hit", "story", "combat"]); v.str(l.m, "log.m", 400);
+    });
+    var SK = ["kills", "turns", "dmgDealt", "dmgTaken", "floorsCleared", "itemsFound"];
+    if (v.obj(o.stats, "stats", SK, SK)) SK.forEach(function (k) { v.int(o.stats[k], "stats." + k, 0, 1e9); });
+    var maxId = 0;
+    Object.keys(ids).forEach(function (k) { if (+k > maxId) maxId = +k; });
+    if (o.nextId < maxId) v.fail("nextId", "lower than an existing id");
+    return errs;
+  }
+
+  // Refuse anything that could smuggle in prototype keys or absurd nesting.
+  function scanSafe(x, depth, counter) {
+    if (depth > 12) return "nesting is too deep";
+    if (++counter.n > 200000) return "too many values";
+    if (x && typeof x === "object") {
+      var keys = Object.keys(x);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (k === "__proto__" || k === "constructor" || k === "prototype") return "forbidden key '" + k + "'";
+        var r = scanSafe(x[k], depth + 1, counter);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
+
+  // Parse and validate a run file. Never touches any existing game state.
+  function importRun(text) {
+    if (typeof text !== "string") return { ok: false, error: "The file could not be read as text." };
+    if (text.length > MAX_IMPORT_BYTES || utf8Length(text) > MAX_IMPORT_BYTES) return { ok: false, error: "That file is larger than 2 MiB; run files are much smaller. Nothing was changed." };
+    var obj;
+    try { obj = JSON.parse(text); } catch (ex) { return { ok: false, error: "That file is not valid JSON (it may be damaged or not a run file). Nothing was changed." }; }
+    var bad = scanSafe(obj, 0, { n: 0 });
+    if (bad) return { ok: false, error: "Rejected: " + bad + ". Nothing was changed." };
+    var errs;
+    try { errs = validateState(obj); } catch (ex2) { errs = ["the file's structure is invalid"]; }
+    if (errs.length) return { ok: false, error: "This run file was rejected: " + errs.slice(0, 3).join("; ") + ". Nothing was changed.", errors: errs };
+    return { ok: true, state: JSON.parse(JSON.stringify(obj)) };
+  }
+
+  // ------------------------------------------------------------------
   // Public API
   // ------------------------------------------------------------------
   var Game = {
@@ -2635,6 +2935,8 @@
     itemName: itemName, itemMods: itemMods, describeItem: describeItem, postCombatRecovery: postCombatRecovery,
     HAZARDS: HAZARDS, SHRINES: SHRINES, chargeLine: chargeLine, floorTitle: floorTitle, interceptor: interceptor,
     runPlan: runPlan, makeStory: makeStory, bossPhase: bossPhase, enemyName: enemyName, planStep: planStep,
+    MAX_IMPORT_BYTES: MAX_IMPORT_BYTES, exportRun: exportRun, importRun: importRun, validateState: validateState,
+    cleanSeed: cleanSeed, dailySeed: dailySeed,
     _internal: { rnd: function (s) { return rnext(s.rng.runtime); }, enterTile: enterTileEffects, killEnemy: killEnemy, enterFloor: enterFloor, spawnEnemy: spawnEnemy, grantXp: grantXp, floorRecovery: floorRecovery, makeItem: makeItem, endCombat: endCombat, maybeStartCombat: maybeStartCombat, updateVision: updateVision }
   };
   root.Game = Game;
