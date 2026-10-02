@@ -28,6 +28,7 @@
     return b;
   }
   function show(screen) {
+    if (screen !== ui.screen && !$("modal").hidden) closeModal();
     ["title", "create", "game", "end"].forEach(function (s) { $("scr-" + s).hidden = s !== screen; });
     ui.screen = screen;
     hideTip();
@@ -123,8 +124,8 @@
     rd.readAsText(file);
   }
   function importError(msg) {
-    if (ui.screen === "game") banner(msg, false);
-    else { var n = $(ui.screen === "end" ? "end-sub" : "title-notice"); if (ui.screen === "title") n.textContent = msg; else banner(msg, false); }
+    if (ui.screen === "title" || ui.screen === "end") $(ui.screen === "end" ? "end-sub" : "title-notice").textContent = msg;
+    else banner(msg, false);
   }
   function continueRun() {
     if (state && (state.status === "explore" || state.status === "combat")) { enterGame(false); return; }
@@ -251,7 +252,8 @@
       ui.seed = c.seed;
     }
     var party = ui.party.map(function (p) { return { cls: p.cls, name: cleanName(p.name) }; });
-    state = G.newRun({ seed: ui.seed, daily: ui.daily, party: party });
+    try { state = G.newRun({ seed: ui.seed, daily: ui.daily, party: party }); }
+    catch (e) { $("create-hint").textContent = "That seed could not start a run (" + (e && e.message) + "). Try another."; return; }
     autosave();
     enterGame(true);
   }
@@ -289,7 +291,7 @@
     var o = $("hud-objective"), ob = state.floor.objective, done = ob.done && ob.type !== "stairs";
     o.textContent = (done ? "Done: " : "Objective: ") + G.objectiveText(state);
     o.className = "hud-obj" + (done ? " done" : "");
-    o.dataset.tip = "Floor objective. The stairs stay sealed until it is complete.";
+    o.dataset.tip = G.objectiveText(state) + "\nThis floor's objective. The stairs stay sealed until it is complete. G travels toward it once found.";
     $("hud-seed").textContent = (state.daily ? "Daily " : "Seed ") + state.seed;
   }
 
@@ -309,10 +311,12 @@
       card.dataset.tip = (isFront ? "FRONT RANK: makes melee attacks and takes enemy melee attacks." : "BACK RANK: safe from melee; attacks only with reach or ranged weapons, spells or abilities.") +
         "\nPortrait order is the formation. " + (inCombat ? "Formation is locked during combat." : "Drag portraits or use the arrows to reorder.") +
         "\n" + C.name + ": " + C.strengths;
-      if (ui.tgt && ui.tgt.kind === "ally" && ui.tgt.list.indexOf(c.id) >= 0) card.style.outline = "2px dashed #4ac0e0";
+      var tIdx = ui.tgt && (ui.tgt.kind === "ally" || ui.tgt.kind === "downed") ? ui.tgt.list.indexOf(c.id) : -1;
+      if (tIdx >= 0) card.style.outline = tIdx === ui.tgt.i ? "3px solid #ffffff" : "2px dashed #4ac0e0";
       var g = el("div", "pglyph", C.glyph); g.style.borderColor = C.color; g.style.color = C.color;
       card.appendChild(g);
       var nm = el("div", "pname");
+      if (tIdx >= 0 && tIdx === ui.tgt.i) nm.appendChild(el("b", "", "> TARGET "));
       nm.appendChild(el("span", "", c.name + " "));
       nm.appendChild(el("span", "rank", (isFront ? "FRONT" : "back") + " " + C.name + " L" + c.level));
       card.appendChild(nm);
@@ -328,15 +332,16 @@
       G.statusText(c.st).forEach(function (t) { var tg = el("span", "tag", t); tg.dataset.tip = statusTip(t); info.appendChild(tg); });
       if (!inCombat && state.party.length > 1) {
         var ro = el("span", "reorder");
-        var up = button("▲", function (ev) { ev.stopPropagation(); doAct({ type: "reorder", from: i, to: i - 1 }); ui.sel = Math.max(0, i - 1); renderGame(); }, "", "Move up in formation");
-        var dn = button("▼", function (ev) { ev.stopPropagation(); doAct({ type: "reorder", from: i, to: i + 1 }); ui.sel = Math.min(state.party.length - 1, i + 1); renderGame(); }, "", "Move down in formation");
+        var up = button("▲", function (ev) { ev.stopPropagation(); reorder(i, i - 1, "up"); }, "", "Move up in formation");
+        var dn = button("▼", function (ev) { ev.stopPropagation(); reorder(i, i + 1, "dn"); }, "", "Move down in formation");
+        up.dataset.ro = "up" + i; dn.dataset.ro = "dn" + i;
         up.disabled = i === 0; dn.disabled = i === state.party.length - 1;
         up.setAttribute("aria-label", "Move " + c.name + " up"); dn.setAttribute("aria-label", "Move " + c.name + " down");
         ro.appendChild(up); ro.appendChild(dn); info.appendChild(ro);
       }
       card.appendChild(info);
       card.addEventListener("click", function () { partyClick(i); });
-      card.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { partyClick(i); ev.preventDefault(); } });
+      card.addEventListener("keydown", function (ev) { if (ev.target === card && ev.key === "Enter") { partyClick(i); ev.preventDefault(); } });
       if (!inCombat) {
         card.draggable = true;
         card.addEventListener("dragstart", function (ev) { ev.dataTransfer.setData("text/plain", String(i)); });
@@ -355,6 +360,12 @@
     Shrouded: "+2 armour from a Murk Acolyte.", Burning: "Takes damage at the start of each of its turns.", Taunted: "Must attack the taunting Sentinel.",
     Guarding: "+3 armour; intercepts single-target attacks on the back rank until the next party phase.", Braced: "+2 armour.", Ward: "Absorbs incoming damage.", Fading: "+25 evasion until the next party phase." };
   function statusTip(t) { var k = t.split(/[ \/]/)[0]; return STATUS_TIPS[k] || t; }
+  function reorder(from, to, dir) {
+    doAct({ type: "reorder", from: from, to: to });
+    ui.sel = to; renderGame();
+    var b = document.querySelector("#party [data-ro='" + dir + to + "']") || document.querySelectorAll("#party .pcard")[to];
+    if (b && !b.disabled) b.focus(); else { var cd = document.querySelectorAll("#party .pcard")[to]; if (cd) cd.focus(); }
+  }
   function partyClick(i) {
     var c = state.party[i];
     if (ui.tgt && (ui.tgt.kind === "ally" || ui.tgt.kind === "downed")) {
@@ -630,7 +641,7 @@
       var vis = G.canSee(state, ft.x, ft.y);
       if (ft.kind === "caltrops") drawGlyph(g, ft.x, ft.y, "%", "#b0e0a0", "#4a8a4a", "diamond");
       else if (ft.kind === "hazard") drawHazard(g, ft);
-      else if (ft.kind === "shrine") drawGlyph(g, ft.x, ft.y, "†", ft.used ? "#6a6470" : "#ffe9a0", ft.used ? "#4a4452" : "#e0c060", "diamond");
+      else if (ft.kind === "shrine") drawGlyph(g, ft.x, ft.y, "†", ft.used ? "#6a6470" : "#ffe9a0", ft.used ? "#4a4452" : "#e0c060", "diamond", ft.used);
       else if (ft.kind === "relic") drawGlyph(g, ft.x, ft.y, "♦", "#ffe27a", "#ffb040", "star");
       if (!vis) { g.fillStyle = "rgba(5,4,7,0.55)"; g.fillRect(ft.x * TS, ft.y * TS, TS, TS); }
     });
@@ -642,6 +653,7 @@
       if (!G.canSee(state, gi.x, gi.y)) return;
       var I = G.ITEMS[gi.item.base];
       drawGlyph(g, gi.x, gi.y, SLOT_GLYPH[I.slot], RAR_COLOR[gi.item.rarity], RAR_COLOR[gi.item.rarity], gi.item.rarity === "unique" ? "star" : gi.item.rarity === "rare" ? "double" : "box");
+      if (gi.item.rarity === "magic") badge(g, gi.x, gi.y, "+", RAR_COLOR.magic);
     });
     // Telegraphs first, so creatures draw on top.
     f.enemies.forEach(function (e) {
@@ -1012,6 +1024,16 @@
   document.addEventListener("keydown", function (ev) {
     if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA")) { if (ev.key === "Escape") ev.target.blur(); return; }
     if (!$("modal").hidden) {
+      if (ev.key === "Tab") {
+        // Keep keyboard focus inside the open dialog.
+        var fs = [].slice.call($("modal-box").querySelectorAll("button:not([disabled]), input, [tabindex='0']"));
+        if (fs.length) {
+          var at = fs.indexOf(document.activeElement);
+          var nx = ev.shiftKey ? (at <= 0 ? fs.length - 1 : at - 1) : (at < 0 || at >= fs.length - 1 ? 0 : at + 1);
+          fs[nx].focus();
+        }
+        ev.preventDefault(); return;
+      }
       if (ev.key === "Enter" && ui.modal === "help") {
         var fb = document.activeElement && $("modal-box").contains(document.activeElement) && document.activeElement.tagName === "BUTTON" ? document.activeElement : null;
         if (fb) fb.click(); else closeModal();

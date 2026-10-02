@@ -138,7 +138,7 @@
     slip: { name: "Slip", charges: 3, target: "none", combat: true, free: true,
       desc: "Free action. This phase's shared Move will not use up the Stalker's action. Requires the Move to still be available." },
     volley: { name: "Volley", charges: 2, target: "none", combat: true,
-      desc: "Fire at up to 3 different visible foes within range 6 for 80% damage each." },
+      desc: "Fire at up to 3 different awake, visible foes (nearest first) within 6 tiles, or your ranged weapon's range if longer, for 80% damage each." },
     smoke: { name: "Smoke Pot", charges: 2, target: "none", combat: true,
       desc: "Foes within 2 tiles are blinded for 2 rounds: -40 accuracy." },
     ember: { name: "Ember Bolt", charges: 4, target: "enemy", range: 6, spell: true,
@@ -188,7 +188,7 @@
     p_kindling: { cls: "arcanist", kind: "passive", name: "Kindling", desc: "Passive: your burns last 2 rounds longer and deal +1 damage per round." },
     learn_litany: { cls: "votary", kind: "learn", ability: "litany", name: "Learn Litany", desc: ABILITIES.litany.desc },
     learn_sanctify: { cls: "votary", kind: "learn", ability: "sanctify", name: "Learn Sanctify", desc: ABILITIES.sanctify.desc },
-    up_mend: { cls: "votary", kind: "upgrade", ability: "mend", name: "Greater Mend", desc: "Mend heals 4 more and removes harmful effects. +1 max charge." },
+    up_mend: { cls: "votary", kind: "upgrade", ability: "mend", name: "Greater Mend", desc: "Mend heals 4 more. +1 max charge." },
     up_ward: { cls: "votary", kind: "upgrade", ability: "ward", name: "Bastion Ward", desc: "Ward absorbs 6 more damage. +1 max charge." },
     up_hex: { cls: "votary", kind: "upgrade", ability: "hex", name: "Spreading Hex", desc: "Hex also curses every foe adjacent to the target. +1 max charge." },
     p_martyr: { cls: "votary", kind: "passive", name: "Martyrdom", desc: "Passive: whenever you heal another ally, you also heal 3." },
@@ -311,8 +311,8 @@
       desc: "Melee pursuer spawned by a gate. Worth no XP." },
     warden: { name: "Warden", glyph: "W", hp: 34, dmg: [4, 7], acc: 80, eva: 5, arm: 2, xp: 30, ai: "warden", minFloor: 99,
       desc: "Floor warden. Every third turn it winds up a SWEEP (marked !) that strikes every party member next turn if the party is still adjacent." },
-    boss: { name: "The Unlit", glyph: "Ψ", hp: 70, dmg: [5, 8], bolt: [4, 7], nova: [8, 12], acc: 85, eva: 5, arm: 2, xp: 0, ai: "boss", shadow: true, minFloor: 99,
-      desc: "The final threat. Phase 1: bolts and summons up to 4 Shades. Phase 2 (below 2/3 HP): marks a 3x3 NOVA around the party, bursting next turn. Phase 3 (below 1/3): acts twice per turn in melee. Takes +50% damage on lit ground." }
+    boss: { name: "The Unlit", glyph: "Ψ", hp: 80, dmg: [5, 8], bolt: [4, 7], nova: [8, 12], acc: 85, eva: 5, arm: 2, xp: 0, ai: "boss", shadow: true, minFloor: 99,
+      desc: "The final threat. Phase 1: claws or bolts, and summons Shades (more for larger parties). Phase 2 (below 2/3 HP): marks a 3x3 NOVA beside the party that bursts next turn; one step away escapes it. Phase 3 (below 1/3): closes in and strikes, twice if it starts its turn next to you. Takes +50% damage on lit ground." }
   };
 
   var THEMES = {
@@ -622,9 +622,9 @@
 
   // Run-wide plan from its own stream: floor themes, objective order and unique placement.
   // Each floor reads the plan but never consumes another floor's stream.
-  var planCache = {};
+  var planCache = Object.create(null);
   function runPlan(seed) {
-    if (planCache[seed]) return planCache[seed];
+    if (Object.prototype.hasOwnProperty.call(planCache, seed)) return planCache[seed];
     var s = makeStream(streamKey(seed, "plan"));
     var th = rshuffle(s, ["ossuary", "cistern", "foundry", "chapel"]);
     var t5 = rpick(s, th.filter(function (t) { return t !== th[3]; }));
@@ -990,6 +990,8 @@
     def.enemies.forEach(function (d) {
       if (d.minParty > size) return;
       var e = spawnEnemy(state, d.type, d.x, d.y, {});
+      // Extra foes added for larger parties are worth 60% XP; XP itself is never divided.
+      if (d.minParty > 1) e.xp = Math.ceil(e.xp * 0.6);
       if (d.hidden) e.hidden = true;
       if (d.primary) e.primary = true;
       if (d.name) e.name = d.name;
@@ -1019,7 +1021,7 @@
   function spawnEnemy(state, type, x, y, o) {
     var D = ENEMIES[type], n = state.floor.num;
     var hp = Math.round(D.hp * 1.35 * (1 + 0.2 * (n - 1)));
-    if (type === "boss") hp = D.hp + 25 * (state.party.length - 1);
+    if (type === "boss") hp = D.hp;
     var e = { id: newId(state), type: type, x: x, y: y, hp: hp, maxHp: hp, awake: !D.asleep, alerted: !!o.alerted,
       hidden: false, st: {}, xp: o.xp !== undefined ? o.xp : D.xp, cd: 0 };
     if (D.structure) e.spawned = 0;
@@ -1221,6 +1223,9 @@
     });
     log(state, "The fighting ends." + (healed ? " The party catches its breath (recovery up to half health)." : ""), "good");
     emit("combatEnd", {});
+    // Anything left underfoot during the fight (full inventory) gets its explicit choice now.
+    var under = state.floor.items.filter(function (g) { return g.x === state.pos.x && g.y === state.pos.y; })[0];
+    if (under) pickUp(state, under);
   }
 
   function defeat(state) {
@@ -1234,7 +1239,7 @@
   // Damage, healing, XP
   // ------------------------------------------------------------------
   function hurtChar(state, c, amount, src) {
-    if (c.down || amount <= 0) return 0;
+    if (c.down || !(amount > 0) || !isFinite(amount)) return 0;
     if (state.combat && state.combat.wall) amount = Math.ceil(amount / 2);
     if (c.st.ward) {
       var ab = Math.min(c.st.ward, amount);
@@ -1279,7 +1284,7 @@
   function hurtEnemy(state, e, amount, src, opts) {
     opts = opts || {};
     if (state.floor.enemies.indexOf(e) < 0) return 0;
-    if (amount < 1) amount = 1;
+    if (!isFinite(amount) || amount < 1) amount = 1;
     if (e.st.hex) amount = Math.round(amount * 1.5);
     if (e.type === "boss" && polarAt(state.floor, e.x, e.y) === "L") amount = Math.round(amount * 1.5);
     if (!e.awake) wake(state, e, "struck");
@@ -1374,7 +1379,8 @@
     state.levelQueue.forEach(function (q) { if (q.charId === c.id) pending = pending.concat(q.options); });
     var pool = Object.keys(UPGRADES).filter(function (k) {
       var U = UPGRADES[k];
-      if (U.cls !== c.cls || has(c.upgrades, k)) return false;
+      // Never offer something already owned or already offered in another queued level-up.
+      if (U.cls !== c.cls || has(c.upgrades, k) || has(pending, k)) return false;
       if (U.kind === "learn" && has(known, U.ability)) return false;
       if (U.kind === "upgrade" && !has(known, U.ability)) return false;
       return true;
@@ -1396,12 +1402,13 @@
     var U = UPGRADES[id];
     if (U.kind === "stat") {
       c.bonus[U.stat] += U.v;
-      if (U.stat === "hp") c.hp += U.v;
+      // A downed character's maximum rises, but it stays at 0 HP until revived.
+      if (U.stat === "hp" && !c.down) c.hp += U.v;
     } else {
       c.upgrades.push(id);
       if (U.kind === "learn") c.abilities.push({ id: U.ability, charges: ABILITIES[U.ability].charges });
       if (U.kind === "upgrade") c.abilities.forEach(function (a) { if (a.id === U.ability && ABILITIES[a.id].charges) a.charges += 1; });
-      if (id === "p_bulwark") c.hp += 6;
+      if (id === "p_bulwark" && !c.down) c.hp += 6;
       if (id === "p_reservoir") c.abilities.forEach(function (a) { if (ABILITIES[a.id].spell && ABILITIES[a.id].charges) a.charges += 1; });
     }
     clampCharges(c);
@@ -1544,8 +1551,7 @@
     for (var i = 0; i < actors.length; i++) {
       var e = actors[i];
       if (f.enemies.indexOf(e) < 0) continue;
-      var turns = e.type === "boss" && e.phase === 3 ? 2 : 1;
-      for (var t = 0; t < turns && f.enemies.indexOf(e) >= 0 && state.status === "combat"; t++) enemyTurn(state, e, dm);
+      enemyTurn(state, e, dm);
       if (state.status !== "combat") return;
       if (!conscious(state).length) { defeat(state); return; }
     }
@@ -1578,12 +1584,13 @@
     if (e.st.tauntT) { e.st.tauntT -= 1; if (e.st.tauntT <= 0) { delete e.st.tauntT; delete e.st.taunt; } }
   }
 
-  function moveEnemy(state, e, nx, ny) {
+  function moveEnemy(state, e, nx, ny, shoved) {
     e.x = nx; e.y = ny;
     var trap = featureAt(state, nx, ny, "caltrops");
     if (trap) {
       state.floor.features.splice(state.floor.features.indexOf(trap), 1);
-      e.st.root = 2;
+      // Rooted for its next 2 turns: during its own move this turn's end-of-turn tick also counts.
+      e.st.root = shoved ? 2 : 3;
       log(state, enemyName(e) + " steps on caltrops and is rooted.", "good");
       hurtEnemy(state, e, trap.dmg, null);
     }
@@ -1710,7 +1717,7 @@
         if (stepToward(state, e, dm)) e.cd = 1;
         return;
       case "gate":
-        gateTick(state, e);
+        if (d <= 8) gateTick(state, e);
         return;
       case "healer": {
         if (e.cd > 0) e.cd -= 1;
@@ -1826,7 +1833,7 @@
     if (ph !== (e.phase || 1)) {
       e.phase = ph;
       if (ph === 2) log(state, enemyName(e) + " draws the Gloam about itself. (Phase 2: it will mark NOVA zones - step out of them.)", "warn");
-      if (ph === 3) { delete e.nova; log(state, enemyName(e) + " comes unmade and lunges! (Phase 3: it acts twice per turn in melee.)", "warn"); }
+      if (ph === 3) { delete e.nova; log(state, enemyName(e) + " comes unmade and lunges! (Phase 3: it closes in and strikes; it strikes twice if it starts its turn next to you.)", "warn"); }
     }
     e.phase = ph;
     if (e.nova) {
@@ -1838,15 +1845,19 @@
       return;
     }
     if (ph === 3) {
-      if (d <= 1) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "rends");
-      else stepToward(state, e, dm);
+      if (d <= 1) {
+        enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "rends");
+        if (conscious(state).length) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "rends");
+      } else if (stepToward(state, e, dm) && cheb(e.x, e.y, state.pos.x, state.pos.y) <= 1) enemyHits(state, e, partyTarget(state, e, "melee"), es.dmg, "melee", "lunges at");
       return;
     }
     e.cd = (e.cd || 0) + 1;
-    if (ph === 1 && e.cd >= 4 && (e.summons || 0) < 4) {
+    // Larger parties face more Shades, not a tougher boss.
+    var size = state.party.length;
+    if (ph === 1 && e.cd >= 4 && (e.summons || 0) < 2 + 2 * size) {
       var minions = f.enemies.filter(function (o) { return o.from === e.id; }).length;
       var spot = freeAdjacent(state, e.x, e.y);
-      if (minions < 2 && spot) {
+      if (minions < 1 + size && spot) {
         e.cd = 0; e.summons = (e.summons || 0) + 1;
         var sh = spawnEnemy(state, "shade", spot[0], spot[1], { alerted: true, xp: 0 });
         sh.from = e.id;
@@ -1856,8 +1867,9 @@
     }
     if (ph === 2 && e.cd >= 2 && seen && d <= 7) {
       e.cd = 0;
-      e.nova = { x: state.pos.x, y: state.pos.y };
-      log(state, enemyName(e) + " marks the ground around you: a NOVA bursts there next turn!", "warn");
+      // Centred one tile from the party toward the boss, so a single step away escapes it.
+      e.nova = { x: state.pos.x + sgn(e.x - state.pos.x), y: state.pos.y + sgn(e.y - state.pos.y) };
+      log(state, enemyName(e) + " marks the ground beside you: a NOVA bursts there next turn. Step away from it!", "warn");
       emit("telegraph", { id: e.id });
       return;
     }
@@ -1890,9 +1902,9 @@
       case "boss": {
         var ph = bossPhase(e);
         if (e.nova) return "NOVA marked around (" + e.nova.x + "," + e.nova.y + ") - bursts next turn. Get out of the 3x3 zone!";
-        if (ph === 1) return "Phase 1: claws if adjacent, umbral bolts at range; summons a Shade every 4th turn (" + (4 - (e.summons || 0)) + " left, no XP). +50% damage taken on lit ground.";
+        if (ph === 1) return "Phase 1: claws if adjacent, umbral bolts at range; summons a Shade every 4th turn (" + Math.max(0, 2 + 2 * state.party.length - (e.summons || 0)) + " left, no XP). +50% damage taken on lit ground.";
         if (ph === 2) return "Phase 2: alternates bolts with NOVA zones that burst a turn later. +50% damage taken on lit ground.";
-        return "Phase 3: acts TWICE per turn in melee. +50% damage taken on lit ground.";
+        return "Phase 3: closes in and strikes; strikes TWICE if it starts its turn next to you. +50% damage taken on lit ground.";
       }
     }
     return "";
@@ -1999,7 +2011,9 @@
       state.stats.itemsFound += 1;
       log(state, "Picked up " + itemName(g.item) + ".", "good");
       emit("pickup", { id: g.item.id });
-    } else if (state.status !== "combat") {
+    } else if (state.status === "combat") {
+      log(state, "Inventory full: " + itemName(g.item) + " stays on the floor. You can decide after the fight.", "warn");
+    } else {
       state.offer = { itemId: g.item.id };
       log(state, "Inventory full (16). Choose something to discard, or leave " + itemName(g.item) + ".", "warn");
       emit("offer", {});
@@ -2108,8 +2122,10 @@
       // Lighting a brazier costs the shared Move in combat, or one turn while exploring.
       if (state.status === "combat") {
         if (state.combat.moved) return "The party has already moved this phase.";
+        var kindler = currentActor(state);
         state.combat.moved = true;
         kindle(state, tx, ty);
+        if (state.combat.slip === kindler.id) { state.combat.slip = 0; checkCombatEnd(state, true); return null; }
         finishAction(state);
         return null;
       }
@@ -2124,9 +2140,13 @@
       if (enemyAt(state, tx, ty)) return "An enemy blocks the way. Attack it instead.";
       var err = moveParty(state, dx, dy);
       if (err) return err;
+      if (state.status !== "combat") return null; // a hazard or ambush on arrival ended the run
       state.combat.moved = true;
       log(state, actor.name + " leads the party one step.", "info");
-      if (state.combat.slip === actor.id) { state.combat.slip = 0; checkCombatEnd(state, true); return null; }
+      var slipped = state.combat.slip === actor.id;
+      if (slipped) state.combat.slip = 0;
+      // Slip keeps the Stalker's action, unless arriving got the Stalker downed.
+      if (slipped && !actor.down) { checkCombatEnd(state, true); return null; }
       finishAction(state);
       return null;
     }
@@ -2206,7 +2226,8 @@
     } else if (A.target === "tile") {
       var f = state.floor;
       for (var y = state.pos.y - A.range; y <= state.pos.y + A.range; y++) for (var x = state.pos.x - A.range; x <= state.pos.x + A.range; x++) {
-        if (!isFloor(f, x, y) || !canSee(state, x, y)) continue;
+        // Caltrops need open floor; light can be aimed at any visible non-wall tile.
+        if ((id === "caltrops" ? !isWalk(f, x, y) : !isFloor(f, x, y)) || !canSee(state, x, y)) continue;
         if (id === "caltrops" && (enemyAt(state, x, y) || (x === state.pos.x && y === state.pos.y) || featureAt(state, x, y))) continue;
         out.list.push({ x: x, y: y });
       }
@@ -2247,7 +2268,7 @@
         log(state, enemyName(e) + " slams into an obstacle and is stunned.", "good");
         return;
       }
-      moveEnemy(state, e, nx, ny);
+      moveEnemy(state, e, nx, ny, true);
       if (state.floor.enemies.indexOf(e) < 0) return;
     }
   }
@@ -2271,12 +2292,15 @@
     var px = state.pos.x, py = state.pos.y;
     var adj = function () { return visibleEnemies(state).filter(function (o) { return cheb(o.x, o.y, px, py) <= 1; }); };
     switch (id) {
-      case "shove":
+      case "shove": {
+        var hk = interceptor(state, e);
+        if (hk && cheb(hk.x, hk.y, px, py) <= 1) e = redirect(state, e);
         if (rollAttack(state, c, e, 0.8) && state.floor.enemies.indexOf(e) >= 0) {
           if (has(c.upgrades, "up_shove")) e.st.stun = Math.max(e.st.stun || 0, 1);
           knockback(state, e, 2);
         }
         return null;
+      }
       case "challenge": {
         var taunted = awakeVisible(state).filter(function (o) { return cheb(o.x, o.y, px, py) <= 5; });
         taunted.forEach(function (o) { o.st.taunt = c.id; o.st.tauntT = 2; });
@@ -2377,7 +2401,6 @@
         var t = charById(state, a.target);
         var amt = rint(rt, 7, 10) + st.wil + (has(c.upgrades, "up_mend") ? 4 : 0);
         var got = healChar(state, c, t, amt);
-        if (has(c.upgrades, "up_mend")) { delete t.st.stun; }
         log(state, c.name + " mends " + t.name + " (+" + got + ").", "good");
         return null;
       }
@@ -2522,6 +2545,8 @@
     if (!q) return "No level-up pending.";
     if (!has(q.options, a.option)) return "Not one of the offered choices.";
     var c = charById(state, q.charId);
+    var U = UPGRADES[a.option];
+    if (U.kind !== "stat" && (has(c.upgrades, a.option) || (U.kind === "learn" && c.abilities.some(function (x) { return x.id === U.ability; })))) return c.name + " already has that. Choose another reward.";
     state.levelQueue.shift();
     applyUpgrade(state, c, a.option);
     return null;
@@ -2540,12 +2565,13 @@
   // ------------------------------------------------------------------
   // Pathing over known tiles (click-to-travel). Returns the next [dx, dy] or null.
   // ------------------------------------------------------------------
-  function knownBlocked(state) {
+  function knownBlocked(state, avoidHazards, tx, ty) {
     var f = state.floor, v = vision(state);
     return function (x, y) {
       if (!isSeen(f, x, y)) return true;
       var e = enemyAt(state, x, y);
       if (e && !e.hidden && v[idx(x, y)]) return true;
+      if (avoidHazards && !(x === tx && y === ty)) { var hz = featureAt(state, x, y, "hazard"); if (hz && has(f.noticed, "f" + hz.id)) return true; }
       return false;
     };
   }
@@ -2553,9 +2579,14 @@
     var f = state.floor;
     if (!isFloor(f, tx, ty) || !isSeen(f, tx, ty)) return null;
     if (tx === state.pos.x && ty === state.pos.y) return null;
-    var blocked = knownBlocked(state);
-    var dm = bfsDist(f, tx, ty, function (x, y) { return (x !== state.pos.x || y !== state.pos.y) && blocked(x, y); });
-    var best = null, bd = dm[idx(state.pos.x, state.pos.y)];
+    // Prefer a route around known hazards; walk through one only if there is no other way.
+    var dm = null, bd = -1;
+    for (var pass = 0; pass < 2 && bd < 0; pass++) {
+      var blocked = knownBlocked(state, pass === 0, tx, ty);
+      dm = bfsDist(f, tx, ty, function (x, y) { return (x !== state.pos.x || y !== state.pos.y) && blocked(x, y); });
+      bd = dm[idx(state.pos.x, state.pos.y)];
+    }
+    var best = null;
     if (bd < 0) return null;
     for (var i = 0; i < 8; i++) {
       var dx = DIRS[i][0], dy = DIRS[i][1], nx = state.pos.x + dx, ny = state.pos.y + dy;
@@ -2732,10 +2763,13 @@
     return true;
   };
 
-  var STATUS_KEYS = ["stun", "root", "blind", "hex", "shroud", "dot", "dotT", "taunt", "tauntT", "censure", "guard", "braced", "ward", "wardT", "fade"];
-  function checkStatus(v, st, path) {
-    if (!v.obj(st, path, STATUS_KEYS)) return;
-    for (var k in st) v.int(st[k], path + "." + k, 0, 100000);
+  // Per-key limits match what the rules can produce.
+  var CHAR_STATUS = { guard: 1, braced: 2, ward: 60, wardT: 3, fade: 1 };
+  var FOE_STATUS = { stun: 3, root: 3, blind: 2, hex: 3, shroud: 2, dot: 10, dotT: 6, taunt: 1e9, tauntT: 2, censure: 1 };
+  function checkStatus(v, st, path, limits, partyIds) {
+    if (!v.obj(st, path, Object.keys(limits))) return;
+    for (var k in st) v.int(st[k], path + "." + k, 0, limits[k]);
+    if (st.taunt !== undefined && partyIds && partyIds.indexOf(st.taunt) < 0) v.fail(path + ".taunt", "refers to no party member");
   }
   function checkItem(v, it, path, ids) {
     if (!v.obj(it, path, ["id", "base", "rarity", "affixes"], ["id", "base", "rarity", "affixes"])) return;
@@ -2794,14 +2828,18 @@
         v.int(c.level, p + ".level", 1, MAX_LEVEL); v.int(c.xp, p + ".xp", 0, 1e7);
         v.bool(c.down, p + ".down");
         if (c.solo !== undefined) { v.bool(c.solo, p + ".solo"); if (c.solo && o.party.length !== 1) v.fail(p + ".solo", "only a lone character can be solo"); }
-        if (v.obj(c.bonus, p + ".bonus", ["hp", "pow", "wil", "arm", "acc", "eva"], ["hp", "pow", "wil", "arm", "acc", "eva"])) for (var bk in c.bonus) v.int(c.bonus[bk], p + ".bonus." + bk, 0, 200);
+        // Bonuses come only from level-up stat picks (one per level gained) and the Whetstone Altar (one per floor).
+        var gained = Math.max(0, (c.level | 0) - 1);
+        var BMAX = { hp: 7 * gained, pow: gained + LAST_FLOOR, wil: gained + LAST_FLOOR, arm: 0, acc: 6 * gained, eva: 5 * gained };
+        if (v.obj(c.bonus, p + ".bonus", ["hp", "pow", "wil", "arm", "acc", "eva"], ["hp", "pow", "wil", "arm", "acc", "eva"])) for (var bk in c.bonus) v.int(c.bonus[bk], p + ".bonus." + bk, 0, BMAX[bk]);
+        if (Array.isArray(c.upgrades) && c.upgrades.length > gained) v.fail(p + ".upgrades", "more upgrades than levels gained");
         if (v.arr(c.upgrades, p + ".upgrades", 40)) c.upgrades.forEach(function (u, k) {
           if (v.oneOf(u, p + ".upgrades[" + k + "]", Object.keys(UPGRADES))) {
             if (UPGRADES[u].cls !== c.cls) v.fail(p + ".upgrades[" + k + "]", "belongs to another class");
             if (c.upgrades.indexOf(u) !== k) v.fail(p + ".upgrades[" + k + "]", "duplicate upgrade");
           }
         });
-        checkStatus(v, c.st, p + ".st");
+        checkStatus(v, c.st, p + ".st", CHAR_STATUS);
         if (v.obj(c.equip, p + ".equip", SLOTS, SLOTS)) SLOTS.forEach(function (sl) {
           var it = c.equip[sl];
           if (it === null) return;
@@ -2877,7 +2915,15 @@
       v.int(e.maxHp, p + ".maxHp", 1, 10000); v.int(e.hp, p + ".hp", 1, e.maxHp);
       v.bool(e.awake, p + ".awake"); v.bool(e.alerted, p + ".alerted"); v.bool(e.hidden, p + ".hidden");
       v.int(e.xp, p + ".xp", 0, ENEMIES[e.type] ? ENEMIES[e.type].xp : 0);
-      checkStatus(v, e.st, p + ".st");
+      checkStatus(v, e.st, p + ".st", FOE_STATUS, partyIds);
+      if (ENEMIES[e.type]) {
+        if (e.hidden && !ENEMIES[e.type].lurk) v.fail(p + ".hidden", "this kind of foe cannot hide");
+        if (ENEMIES[e.type].structure && e.spawned === undefined) v.fail(p + ".spawned", "missing");
+        if (e.spawned !== undefined && (!ENEMIES[e.type].structure || e.spawned > ENEMIES.gate.total)) v.fail(p + ".spawned", "impossible");
+        if (e.type === "boss" && f.num !== LAST_FLOOR) v.fail(p, "the final foe only appears on the last floor");
+        if (e.type === "warden" && def.objective.type !== "warden") v.fail(p, "no warden belongs on this floor");
+        if (e.primary && def.objective.type !== "gate") v.fail(p + ".primary", "this floor has no primary gate");
+      }
       ["cd", "spawned", "from", "ward", "swell", "sweep", "phase", "summons", "casts", "lx", "ly"].forEach(function (k) { if (e[k] !== undefined) v.int(e[k], p + "." + k, -1, 1e9); });
       if (e.primary !== undefined) v.bool(e.primary, p + ".primary");
       if (e.name !== undefined) v.str(e.name, p + ".name", 80, 1);
@@ -2897,6 +2943,8 @@
       v.oneOf(ft.kind, p + ".kind", ["caltrops", "hazard", "shrine", "relic"]);
       if (!walk(ft.x, ft.y)) v.fail(p, "placed somewhere impossible");
       if (ft.kind === "hazard") v.oneOf(ft.sub, p + ".sub", Object.keys(HAZARDS));
+      if ((ft.kind === "hazard" || ft.kind === "caltrops") && ft.dmg === undefined) v.fail(p + ".dmg", "missing");
+      if (ft.kind === "relic" && def.objective.type !== "relic") v.fail(p, "no relic belongs on this floor");
       if (ft.kind === "shrine") { v.oneOf(ft.sub, p + ".sub", Object.keys(SHRINES)); v.bool(ft.used, p + ".used"); }
       if (ft.dmg !== undefined) v.int(ft.dmg, p + ".dmg", 0, 100);
     });
@@ -2919,11 +2967,34 @@
       }
     } else if (o.combat !== null) v.fail("combat", "must be empty outside combat");
     if (o.status !== "defeat" && o.party.every(function (c) { return c.down; })) v.fail("party", "everyone is downed but the run is not over");
-    if (v.arr(o.levelQueue, "levelQueue", 30)) o.levelQueue.forEach(function (q, i) {
+    if (o.status === "defeat" && o.party.some(function (c) { return !c.down; })) v.fail("status", "defeat with a conscious party");
+    if (o.status === "victory" && (f.num !== LAST_FLOOR || f.enemies.some(function (e) { return e.type === "boss"; }) || !ob.done)) v.fail("status", "victory without defeating the final foe");
+    // An unfinished objective needs its target to still exist, or the stairs would stay sealed forever.
+    if (ob && !ob.done && o.status !== "defeat") {
+      var need = { gate: function () { return f.enemies.some(function (e) { return e.primary && e.type === "gate"; }); },
+        warden: function () { return f.enemies.some(function (e) { return e.type === "warden"; }); },
+        boss: function () { return f.enemies.filter(function (e) { return e.type === "boss"; }).length === 1; },
+        relic: function () { return ob.carried || f.features.filter(function (ft) { return ft.kind === "relic"; }).length === 1; },
+        stairs: function () { return true; } };
+      if (need[ob.type] && !need[ob.type]()) v.fail("floor.objective", "its target is missing, so it could never be completed");
+    }
+    var offered = {};
+    if (v.arr(o.levelQueue, "levelQueue", 3 * (MAX_LEVEL - 1))) o.levelQueue.forEach(function (q, i) {
       var p = "levelQueue[" + i + "]";
       if (!v.obj(q, p, ["charId", "options"], ["charId", "options"])) return;
-      if (partyIds.indexOf(q.charId) < 0) v.fail(p, "unknown character");
-      if (v.arr(q.options, p + ".options", 3)) q.options.forEach(function (u) { v.oneOf(u, p + ".options", Object.keys(UPGRADES)); });
+      var ch = o.party.filter(function (c) { return c.id === q.charId; })[0];
+      if (!ch) { v.fail(p, "unknown character"); return; }
+      if (!Array.isArray(q.options) || q.options.length < 1 || q.options.length > 3) { v.fail(p + ".options", "must offer 1 to 3 choices"); return; }
+      var known = ch.abilities.map(function (a) { return a.id; });
+      q.options.forEach(function (u) {
+        if (!v.oneOf(u, p + ".options", Object.keys(UPGRADES))) return;
+        var U = UPGRADES[u];
+        if (U.kind === "stat") return;
+        var key = ch.id + ":" + u;
+        if (U.cls !== ch.cls || has(ch.upgrades, u) || offered[key] || (U.kind === "learn" && has(known, U.ability)) || (U.kind === "upgrade" && !has(known, U.ability))) v.fail(p + ".options", "offers a reward this character cannot take");
+        offered[key] = 1;
+      });
+      if (!q.options.some(function (u) { return UPGRADES[u] && UPGRADES[u].kind === "stat"; })) v.fail(p + ".options", "must include a statistic choice");
     });
     if (o.offer !== null) {
       if (v.obj(o.offer, "offer", ["itemId"], ["itemId"]) && !f.items.some(function (g) { return g.item && g.item.id === o.offer.itemId; })) v.fail("offer", "refers to a missing item");
