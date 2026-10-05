@@ -431,6 +431,9 @@
     var d = button("Descend (>)", function () { doAct({ type: "descend" }); }, G.canDescend(state) ? "primary" : "", "Descend when standing on open stairs. On descending: downed allies revive at 25% HP, others heal 25%, and abilities recover half their missing charges.");
     d.disabled = !G.canDescend(state);
     util.appendChild(d);
+    var here = G.droppedHere(state);
+    if (here.length) util.appendChild(button("Pick Up (P)", function () { doAct({ type: "pickup" }); }, "",
+      "Take back " + G.itemName(here[here.length - 1].item) + (here.length > 1 ? " (" + (here.length - 1) + " more dropped here)" : "") + ". Picking up costs no turn."));
     if (ui.tgt) util.appendChild(button("Cancel (Esc)", cancelTarget));
     a.appendChild(util);
   }
@@ -526,7 +529,7 @@
       row.appendChild(button("Unequip", function () { doAct({ type: "unequip", char: s.char, slot: s.slot }); ui.selItem = null; renderGame(); }));
     } else if (I.slot === "use") {
       row.appendChild(button("Use", function () { useItem(it); }));
-      row.appendChild(button("Discard", function () { doAct({ type: "discard", item: it.id }); ui.selItem = null; renderGame(); }));
+      dropButtons(row, it);
     } else {
       state.party.forEach(function (c) {
         var b = el("button"); b.type = "button";
@@ -537,9 +540,15 @@
         b.addEventListener("click", function () { doAct({ type: "equip", item: it.id, char: c.id }); ui.selItem = null; renderGame(); });
         row.appendChild(b);
       });
-      row.appendChild(button("Discard", function () { doAct({ type: "discard", item: it.id }); ui.selItem = null; renderGame(); }));
+      dropButtons(row, it);
     }
     box.appendChild(row);
+  }
+  var DROP_TIP = "Leave it on the floor here. It stays on this tile (on this floor) and is never picked up automatically: stand here and press P to take it back.";
+  var DISCARD_TIP = "Destroy it permanently.";
+  function dropButtons(row, it) {
+    row.appendChild(button("Drop", function () { doAct({ type: "drop", item: it.id }); ui.selItem = null; renderGame(); }, "", DROP_TIP));
+    row.appendChild(button("Discard", function () { doAct({ type: "discard", item: it.id }); ui.selItem = null; renderGame(); }, "", DISCARD_TIP));
   }
 
   function renderLog() {
@@ -589,10 +598,15 @@
     nm.style.color = RAR_COLOR[g.item.rarity];
     box.appendChild(nm);
     G.describeItem(g.item).forEach(function (t) { box.appendChild(el("p", "fine", t)); });
-    box.appendChild(el("h3", "", "Discard one item to take it:"));
+    var mode = ui.offerMode === "discard" ? "discard" : "drop";
+    box.appendChild(el("h3", "", "Make room to take it: choose an item to " + (mode === "drop" ? "drop here" : "discard") + "."));
+    var modes = el("div", "utilrow");
+    modes.appendChild(button("Drop it here", function () { ui.offerMode = "drop"; showOffer(); }, mode === "drop" ? "on" : "", DROP_TIP));
+    modes.appendChild(button("Discard it", function () { ui.offerMode = "discard"; showOffer(); }, mode === "discard" ? "on" : "", DISCARD_TIP));
+    box.appendChild(modes);
     var list = el("div", "slots");
     state.inventory.forEach(function (it) {
-      var s = itemSlot(it, null, function () { doAct({ type: "discard", item: it.id }); });
+      var s = itemSlot(it, null, function () { doAct({ type: mode, item: it.id }); });
       list.appendChild(s);
     });
     box.appendChild(list);
@@ -782,7 +796,7 @@
     }
     if (x === state.pos.x && y === state.pos.y) out.push("Your party: " + state.party.map(function (c, i) { return (i + 1) + "." + c.name; }).join(" ") + "\nThe whole party shares one tile; portrait order is the formation.");
     if (f.stairs && x === f.stairs.x && y === f.stairs.y) out.push("Stairs down (>)" + (f.objective.done ? " - open." : " - sealed: " + G.objectiveText(state)));
-    f.items.forEach(function (gi) { if (gi.x === x && gi.y === y && vis) out.push(G.itemName(gi.item) + " [" + G.RARITY[gi.item.rarity].name + "] - walk over it to pick it up."); });
+    f.items.forEach(function (gi) { if (gi.x === x && gi.y === y && vis) out.push(G.itemName(gi.item) + " [" + G.RARITY[gi.item.rarity].name + "] - " + (gi.dropped ? "dropped by you: stand here and press P to pick it up." : "walk over it to pick it up.")); });
     var ft = G.featureAt(state, x, y);
     if (ft && ft.kind === "caltrops") out.push("Your caltrops: the first foe to step here is hurt and rooted.");
     if (ft && ft.kind === "hazard") out.push(G.HAZARDS[ft.sub].name + " (" + G.HAZARDS[ft.sub].glyph + ", zigzag): " + G.HAZARDS[ft.sub].desc + " Damage: " + ft.dmg + " each. Travel commands avoid it.");
@@ -972,7 +986,7 @@
     ["Controls", [
       "Move: WASD or arrow keys; numpad for diagonals. Click a known tile to walk there one step at a time.",
       "E: Auto-Explore. G: Travel to the objective or the open stairs. Both stop the moment anything new comes into view. Any key or Esc stops them.",
-      "F: basic attack (click a foe or Tab/Enter to choose). 1-6: abilities of the acting character. Space: rest / skip. >: descend.",
+      "F: basic attack (click a foe or Tab/Enter to choose). 1-6: abilities of the acting character. Space: rest / skip. >: descend. P: pick up an item you dropped here.",
       "Esc: cancel targeting or close a panel. H or ?: this help. Click a portrait to select who uses abilities and items outside combat."]],
     ["Formation", [
       "Portrait order is formation. Slot 1 is the FRONT rank (a lone hero is always front); slots 2-3 are the BACK rank.",
@@ -997,6 +1011,7 @@
     ["Items and saving", [
       "One shared 16-slot inventory; equipped items take no slot. Walk over loot to pick it up. Rarity: Common (plain), Magic (+, double border), Rare (++, thick double), Unique (*, star/dashed).",
       "Select an item to compare it for each character and equip it in one click. Every member gets the full XP of each kill.",
+      "Drop leaves an item on your tile (it stays on that floor and is never picked up automatically; stand on it and press P to take it back). Discard destroys it.",
       "The run autosaves in this browser when it can. Export downloads a portable JSON file; Import Run (title screen) restores it exactly, on any computer."]]
   ];
   function openHelp() {
@@ -1073,6 +1088,7 @@
     if (ev.code === "KeyF") { stopTravel(); startAttack(); ev.preventDefault(); return; }
     if (ev.code === "KeyE") { startTravel({ kind: "explore" }); ev.preventDefault(); return; }
     if (ev.code === "KeyG") { startTravel({ kind: "travel" }); ev.preventDefault(); return; }
+    if (ev.code === "KeyP") { doAct({ type: "pickup" }); ev.preventDefault(); return; }
     if (ev.key === "h" || ev.key === "?") { openHelp(); ev.preventDefault(); return; }
     if (/^Digit[1-9]$/.test(ev.code)) { startAbility(parseInt(ev.code.slice(5), 10) - 1); ev.preventDefault(); return; }
     if (ev.key === "Escape") { stopTravel(); if (ui.selItem) { ui.selItem = null; renderGame(); } }

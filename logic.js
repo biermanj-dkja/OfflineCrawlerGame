@@ -10,6 +10,7 @@
   var MAP_W = 40, MAP_H = 26, VIEW_R = 8;
   var LAST_FLOOR = 7;
   var INV_SIZE = 16;
+  var MAX_FLOOR_ITEMS = 200; // a save with more items on one floor is rejected, so dropping stops here
   var SLOTS = ["weapon", "armor", "offhand", "charm"];
   var DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]];
 
@@ -1065,7 +1066,7 @@
       if (e.hidden || !v[idx(e.x, e.y)]) return;
       notice(state, "e" + e.id, "enemy", e.awake ? null : "You see a sleeping " + enemyName(e) + " (z).");
     });
-    f.items.forEach(function (g) { if (v[idx(g.x, g.y)]) notice(state, "i" + g.item.id, "item", "You spot " + itemName(g.item) + "."); });
+    f.items.forEach(function (g) { if (!g.dropped && v[idx(g.x, g.y)]) notice(state, "i" + g.item.id, "item", "You spot " + itemName(g.item) + "."); });
     f.features.forEach(function (ft) {
       if (!v[idx(ft.x, ft.y)]) return;
       if (ft.kind === "hazard") notice(state, "f" + ft.id, "hazard", "You spot " + HAZARDS[ft.sub].name + " - the travel commands will avoid it.");
@@ -1224,7 +1225,7 @@
     log(state, "The fighting ends." + (healed ? " The party catches its breath (recovery up to half health)." : ""), "good");
     emit("combatEnd", {});
     // Anything left underfoot during the fight (full inventory) gets its explicit choice now.
-    var under = state.floor.items.filter(function (g) { return g.x === state.pos.x && g.y === state.pos.y; })[0];
+    var under = state.floor.items.filter(function (g) { return !g.dropped && g.x === state.pos.x && g.y === state.pos.y; })[0];
     if (under) pickUp(state, under);
   }
 
@@ -1929,12 +1930,16 @@
   // ------------------------------------------------------------------
   // Movement and tile effects
   // ------------------------------------------------------------------
+  // Every action that spends a turn (a step, a wait, an attack, an ability, an item, a brazier,
+  // in or out of combat) counts once. Free actions (Slip-style free abilities, equipping, dropping) do not.
+  function passTurn(state) { state.turn += 1; state.stats.turns += 1; }
+
   function moveParty(state, dx, dy) {
     var f = state.floor, nx = state.pos.x + dx, ny = state.pos.y + dy;
     if (!canStep(f, state.pos.x, state.pos.y, dx, dy)) return "Blocked.";
     if (enemyAt(state, nx, ny)) return "Something is in the way.";
     state.pos.x = nx; state.pos.y = ny;
-    state.turn += 1; state.stats.turns += 1;
+    passTurn(state);
     updateVision(state);
     enterTileEffects(state);
     return null;
@@ -1944,10 +1949,13 @@
   function enterTileEffects(state) {
     var f = state.floor, px = state.pos.x, py = state.pos.y, o = f.objective;
     f.rooms.forEach(function (r) { if (!r.visited && inRoom(r, px, py)) { r.visited = true; roomEvent(state, r); } });
+    var left = 0;
     for (var i = f.items.length - 1; i >= 0; i--) {
       var g = f.items[i];
-      if (g && g.x === px && g.y === py) pickUp(state, g);
+      if (!g || g.x !== px || g.y !== py) continue;
+      if (g.dropped) left += 1; else pickUp(state, g);
     }
+    if (left) log(state, (left === 1 ? "Something you dropped lies" : left + " things you dropped lie") + " here. Press P to pick up.", "info");
     var hz = featureAt(state, px, py, "hazard");
     if (hz) {
       log(state, HAZARDS[hz.sub].name + "! Every party member takes " + hz.dmg + ".", "bad");
@@ -2008,7 +2016,7 @@
     if (state.inventory.length < INV_SIZE) {
       f.items.splice(f.items.indexOf(g), 1);
       state.inventory.push(g.item);
-      state.stats.itemsFound += 1;
+      if (!g.dropped) state.stats.itemsFound += 1;
       log(state, "Picked up " + itemName(g.item) + ".", "good");
       emit("pickup", { id: g.item.id });
     } else if (state.status === "combat") {
@@ -2097,8 +2105,10 @@
       else if (a.type === "equip") err = doEquip(state, a);
       else if (a.type === "unequip") err = doUnequip(state, a);
       else if (a.type === "discard") err = doDiscard(state, a);
+      else if (a.type === "drop") err = doDrop(state, a);
       else if (state.status === "explore" && state.levelQueue.length) err = "Choose a level-up reward first.";
       else if (state.offer && a.type !== "use") err = "Decide what to do with the item first (inventory full).";
+      else if (a.type === "pickup") err = doPickUp(state);
       else if (a.type === "move") err = doMove(state, a.dx | 0, a.dy | 0);
       else if (a.type === "rest") err = doRest(state);
       else if (a.type === "attack") err = doAttack(state, a);
@@ -2124,13 +2134,14 @@
         if (state.combat.moved) return "The party has already moved this phase.";
         var kindler = currentActor(state);
         state.combat.moved = true;
+        passTurn(state);
         kindle(state, tx, ty);
         if (state.combat.slip === kindler.id) { state.combat.slip = 0; checkCombatEnd(state, true); return null; }
         finishAction(state);
         return null;
       }
+      passTurn(state);
       kindle(state, tx, ty);
-      state.turn += 1;
       worldTurn(state); updateVision(state); maybeStartCombat(state);
       return null;
     }
@@ -2161,13 +2172,13 @@
   }
 
   function doRest(state) {
+    passTurn(state);
     if (state.status === "combat") {
       log(state, currentActor(state).name + " waits.", "info");
       finishAction(state);
       return null;
     }
     // Waiting outside combat passes a world turn. It never heals or restores charges.
-    state.turn += 1; state.stats.turns += 1;
     worldTurn(state);
     updateVision(state);
     maybeStartCombat(state);
@@ -2207,8 +2218,9 @@
 
   // After an action: in combat, pass the turn; outside combat, attacking a sleeper starts a fight.
   function afterAct(state) {
+    passTurn(state);
     if (state.status === "combat") finishAction(state);
-    else { state.turn += 1; updateVision(state); maybeStartCombat(state); }
+    else { updateVision(state); maybeStartCombat(state); }
   }
 
   // Valid targets for an ability or item. Returns {kind, list, why}.
@@ -2465,12 +2477,34 @@
     clampCharges(c);
     return null;
   }
+  // Discard destroys an item; Drop leaves it on the party's tile to pick up again later (P).
+  // Dropped items are never picked up automatically, so walking or exploring past them is safe.
   function doDiscard(state, a) {
     var i = invIndex(state, a.item);
     if (i < 0) return "That item is not in the inventory.";
     var it = state.inventory.splice(i, 1)[0];
     log(state, "Discarded " + itemName(it) + ".", "info");
     if (state.offer) doTake(state, { item: state.offer.itemId });
+    return null;
+  }
+  function doDrop(state, a) {
+    var i = invIndex(state, a.item), f = state.floor;
+    if (i < 0) return "That item is not in the inventory.";
+    if (f.items.length >= MAX_FLOOR_ITEMS) return "There is no room left on this floor to drop anything. Discard it instead.";
+    var it = state.inventory.splice(i, 1)[0];
+    f.items.push({ x: state.pos.x, y: state.pos.y, item: it, dropped: true });
+    log(state, "Dropped " + itemName(it) + " here. Stand on this tile and press P (Pick Up) to take it back.", "info");
+    if (state.offer) doTake(state, { item: state.offer.itemId });
+    return null;
+  }
+  function droppedHere(state) {
+    return state.floor.items.filter(function (g) { return g.dropped && g.x === state.pos.x && g.y === state.pos.y; });
+  }
+  function doPickUp(state) {
+    var here = droppedHere(state);
+    if (!here.length) return "Nothing you dropped lies here.";
+    if (state.inventory.length >= INV_SIZE) return "Inventory full (16). Drop or discard something first.";
+    pickUp(state, here[here.length - 1]);
     return null;
   }
   // Resolve a full-inventory offer: {take: true} after making room, or {leave: true}.
@@ -2650,7 +2684,7 @@
       if (!isSeen(f, x, y) || !isWalk(f, x, y)) continue;
       for (var i = 0; i < 8; i++) if (!isSeen(f, x + DIRS[i][0], y + DIRS[i][1])) { goals.push([x, y]); break; }
     }
-    if (state.inventory.length < INV_SIZE) f.items.forEach(function (g) { if (isSeen(f, g.x, g.y) && !(g.x === state.pos.x && g.y === state.pos.y)) goals.push([g.x, g.y]); });
+    if (state.inventory.length < INV_SIZE) f.items.forEach(function (g) { if (!g.dropped && isSeen(f, g.x, g.y) && !(g.x === state.pos.x && g.y === state.pos.y)) goals.push([g.x, g.y]); });
     return goals;
   }
   function adjacentGoals(x, y) { return DIRS.map(function (d) { return [x + d[0], y + d[1]]; }); }
@@ -2853,6 +2887,8 @@
           var ap = p + ".abilities[" + k + "]";
           if (!v.obj(a, ap, ["id", "charges"], ["id", "charges"])) return;
           if (!v.oneOf(a.id, ap + ".id", learned)) return;
+          // With the count check below, this makes the list exactly the class kit plus learned abilities.
+          for (var j = 0; j < k; j++) if (c.abilities[j] && c.abilities[j].id === a.id) { v.fail(ap + ".id", "duplicate ability"); return; }
           v.int(a.charges, ap + ".charges", 0, abilityMax(c, a.id));
         });
         if (!errs.length && c.abilities.length !== learned.length) v.fail(p + ".abilities", "does not match the class and learned abilities");
@@ -2930,9 +2966,10 @@
       if (e.charge !== undefined && (!v.obj(e.charge, p + ".charge", ["dx", "dy"], ["dx", "dy"]) || !v.int(e.charge.dx, p + ".charge.dx", -1, 1) || !v.int(e.charge.dy, p + ".charge.dy", -1, 1))) return;
       if (e.nova !== undefined && v.obj(e.nova, p + ".nova", ["x", "y"], ["x", "y"]) && !inB(e.nova.x, e.nova.y)) v.fail(p + ".nova", "off the map");
     });
-    if (v.arr(f.items, "floor.items", 200)) f.items.forEach(function (g, i) {
+    if (v.arr(f.items, "floor.items", MAX_FLOOR_ITEMS)) f.items.forEach(function (g, i) {
       var p = "floor.items[" + i + "]";
-      if (!v.obj(g, p, ["x", "y", "item"], ["x", "y", "item"])) return;
+      if (!v.obj(g, p, ["x", "y", "item", "dropped"], ["x", "y", "item"])) return;
+      if (g.dropped !== undefined && v.bool(g.dropped, p + ".dropped") && !g.dropped) v.fail(p + ".dropped", "must be true when present");
       if (!walk(g.x, g.y)) v.fail(p, "lies somewhere impossible");
       checkItem(v, g.item, p + ".item", ids);
     });
@@ -3053,13 +3090,13 @@
     newRun: newRun, act: act, charStats: charStats, abilityMax: abilityMax, abilityTargets: abilityTargets,
     front: front, currentActor: currentActor, canSee: canSee, isSeen: isSeen, tileAt: tileAt, polarAt: polarAt,
     enemyAt: enemyAt, enemyById: enemyById, featureAt: featureAt, intentOf: intentOf, statusText: statusText, objectiveText: objectiveText,
-    canDescend: canDescend, basicCheck: basicCheck, cheb: cheb, stepTowardTile: stepTowardTile,
+    canDescend: canDescend, droppedHere: droppedHere, basicCheck: basicCheck, cheb: cheb, stepTowardTile: stepTowardTile,
     itemName: itemName, itemMods: itemMods, describeItem: describeItem, postCombatRecovery: postCombatRecovery,
     HAZARDS: HAZARDS, SHRINES: SHRINES, chargeLine: chargeLine, floorTitle: floorTitle, interceptor: interceptor,
     runPlan: runPlan, makeStory: makeStory, bossPhase: bossPhase, enemyName: enemyName, planStep: planStep,
     MAX_IMPORT_BYTES: MAX_IMPORT_BYTES, exportRun: exportRun, importRun: importRun, validateState: validateState,
     cleanSeed: cleanSeed, dailySeed: dailySeed,
-    _internal: { rnd: function (s) { return rnext(s.rng.runtime); }, enterTile: enterTileEffects, killEnemy: killEnemy, enterFloor: enterFloor, spawnEnemy: spawnEnemy, grantXp: grantXp, floorRecovery: floorRecovery, makeItem: makeItem, endCombat: endCombat, maybeStartCombat: maybeStartCombat, updateVision: updateVision }
+    _internal: { rnd: function (s) { return rnext(s.rng.runtime); }, enterTile: enterTileEffects, killEnemy: killEnemy, enterFloor: enterFloor, spawnEnemy: spawnEnemy, grantXp: grantXp, floorRecovery: floorRecovery, makeItem: makeItem, endCombat: endCombat, maybeStartCombat: maybeStartCombat, updateVision: updateVision, frontierGoals: frontierGoals }
   };
   root.Game = Game;
   if (typeof module !== "undefined" && module.exports) module.exports = Game;

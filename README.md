@@ -23,7 +23,7 @@ Open `index.html` directly from disk in a current desktop Chrome, Edge, or Firef
   - Twelve enemy behaviours, including ranged kiters, telegraphed chargers, healers, hidden ambushers, splitters, exploders, defenders, and light-shy shades.
   - Light and shadow ground affects some creatures.
   - Floor 7 holds a three-phase boss weakened by lit braziers.
-- **Loot:** one shared 16-slot inventory (equipped items don't use slots) and 41 items, including 7 uniques. Rarity is shown by colour and also by a mark (`+`, `++`, `*`) and border style.
+- **Loot:** one shared 16-slot inventory (equipped items don't use slots) and 41 items, including 7 uniques. Rarity is shown by colour and also by a mark (`+`, `++`, `*`) and border style. Unwanted items can be **dropped** (left on your tile to pick up again with P) or **discarded** (destroyed).
 
 ## Controls
 
@@ -36,6 +36,7 @@ Open `index.html` directly from disk in a current desktop Chrome, Edge, or Firef
 | 1–6 | Abilities of the acting or selected character |
 | Space | Rest / skip |
 | > | Descend |
+| P | Pick up an item you dropped on this tile |
 | Esc | Cancel targeting, stop travel, close a panel |
 | H or ? | Help |
 

@@ -390,6 +390,64 @@ test("equipment and inventory: swap through the shared 16 slots; full inventory 
   assert(Object.keys(Game.ITEMS).filter(function (k) { return Game.ITEMS[k].unique; }).length >= 5, "at least 5 uniques");
 });
 
+test("drop vs discard: dropped items stay on the tile, are not re-collected automatically, and can be picked up", function () {
+  var s = Game.newRun({ seed: "drop", party: party(1) });
+  arena(s, []);
+  s.inventory = [I.makeItem(s, { base: "maul" }), I.makeItem(s, { base: "draught" })];
+  var maul = s.inventory[0], found0 = s.stats.itemsFound, turns0 = s.stats.turns;
+  actOk(s, { type: "drop", item: maul.id });
+  eq(s.inventory.length, 1);
+  var g = s.floor.items.filter(function (x) { return x.item.id === maul.id; })[0];
+  assert(g && g.dropped && g.x === s.pos.x && g.y === s.pos.y, "dropped onto the party's tile");
+  eq(s.stats.turns, turns0, "dropping is free");
+  // Stepping off and back on does not pick it up, and auto-explore does not chase it.
+  actOk(s, { type: "move", dx: 1, dy: 0 });
+  assert(!I.frontierGoals(s).some(function (p) { return p[0] === g.x && p[1] === g.y; }), "auto-explore ignores dropped items");
+  actOk(s, { type: "move", dx: -1, dy: 0 });
+  eq(s.inventory.length, 1, "not re-collected automatically");
+  eq(Game.droppedHere(s).length, 1);
+  actOk(s, { type: "pickup" });
+  assert(s.inventory.some(function (x) { return x.id === maul.id; }), "picked back up");
+  eq(s.stats.itemsFound, found0, "picking up your own drop is not a new find");
+  assert(!Game.act(s, { type: "pickup" }).ok, "nothing left to pick up");
+  // Discard still destroys.
+  actOk(s, { type: "discard", item: maul.id });
+  assert(!s.floor.items.some(function (x) { return x.item.id === maul.id; }) && !s.inventory.some(function (x) { return x.id === maul.id; }), "discarded item is gone");
+  // Full inventory offer: dropping makes room and swaps.
+  s.inventory = [];
+  for (var i = 0; i < 16; i++) s.inventory.push(I.makeItem(s, { base: "draught" }));
+  var it = I.makeItem(s, { base: "glasseye" });
+  s.floor.items.push({ x: s.pos.x + 1, y: s.pos.y, item: it });
+  actOk(s, { type: "move", dx: 1, dy: 0 });
+  assert(s.offer && s.offer.itemId === it.id, "offer expected");
+  var out = s.inventory[0].id;
+  actOk(s, { type: "drop", item: out });
+  eq(s.offer, null); eq(s.inventory.length, 16);
+  assert(s.inventory.some(function (x) { return x.id === it.id; }), "took the found item");
+  assert(s.floor.items.some(function (x) { return x.item.id === out && x.dropped; }), "the swapped-out item lies on the floor");
+  assert(!Game.act(s, { type: "pickup" }).ok, "cannot pick up into a full inventory");
+});
+
+test("turns: every turn-spending action counts once, in and out of combat", function () {
+  var s = Game.newRun({ seed: "turns", party: [{ cls: "stalker", name: "S" }, { cls: "arcanist", name: "A" }] });
+  arena(s, []);
+  var t = s.stats.turns;
+  actOk(s, { type: "move", dx: 1, dy: 0 }); eq(s.stats.turns, t + 1, "exploration step");
+  actOk(s, { type: "rest" }); eq(s.stats.turns, t + 2, "exploration wait");
+  s = Game.newRun({ seed: "turns", party: [{ cls: "stalker", name: "S" }, { cls: "arcanist", name: "A" }] });
+  var foes = arena(s, [{ type: "gnawer", dx: 3, dy: 0, hp: 900 }]);
+  s.flags.godMode = true;
+  eq(s.status, "combat");
+  t = s.stats.turns;
+  actOk(s, { type: "ability", id: "slip" }); eq(s.stats.turns, t, "free ability spends no turn");
+  actOk(s, { type: "attack", target: foes[0].id }); eq(s.stats.turns, t + 1, "attack");
+  actOk(s, { type: "ability", id: "ember", target: foes[0].id }); eq(s.stats.turns, t + 2, "ability");
+  eq(s.combat.round, 2);
+  actOk(s, { type: "rest" }); eq(s.stats.turns, t + 3, "combat wait");
+  actOk(s, { type: "move", dx: 0, dy: 1 }); eq(s.stats.turns, t + 4, "combat move");
+  eq(s.stats.turns - t, 2 * (s.combat.round - 1), "two actors, two turns per finished round");
+});
+
 // ---------------------------------------------------------------- exploits
 test("11. spawner output cannot create unlimited meaningful XP", function () {
   var s = Game.newRun({ seed: "gate", party: party(3) });
@@ -515,6 +573,8 @@ test("9. malformed, incompatible, oversized and invalid imports are rejected wit
     "level/xp mismatch": mut(function (o) { o.party[0].level = 9; }),
     "charges over max": mut(function (o) { o.party[0].abilities[0].charges = 99; }),
     "foreign ability": mut(function (o) { o.party[0].abilities[0].id = o.party[0].cls === "arcanist" ? "mend" : "ember"; }),
+    "duplicate ability": mut(function (o) { o.party[0].abilities[1] = clone(o.party[0].abilities[0]); }),
+    "dropped flag junk": mut(function (o) { o.floor.items.push({ x: o.pos.x, y: o.pos.y, item: { id: 999998, base: "draught", rarity: "common", affixes: [] }, dropped: "yes" }); o.nextId = 999999; }),
     "17 items": mut(function (o) { o.inventory = []; for (var i = 0; i < 17; i++) o.inventory.push({ id: 900000 + i, base: "draught", rarity: "common", affixes: [] }); }),
     "unknown item": mut(function (o) { o.inventory = [{ id: 999999, base: "laser", rarity: "common", affixes: [] }]; }),
     "fake unique": mut(function (o) { o.inventory = [{ id: 999999, base: "sword", rarity: "unique", affixes: [] }]; }),
@@ -543,6 +603,16 @@ test("9. malformed, incompatible, oversized and invalid imports are rejected wit
   assert(({}).polluted === undefined, "no prototype pollution");
   eq(JSON.stringify(cur), before, "the current game is untouched");
   assert(Game.importRun(Game.exportRun(cur)).ok, "the untouched game still exports cleanly");
+});
+
+test("a run with dropped items survives export/import exactly", function () {
+  var s = playedRun("drop-save", party(2), 150);
+  s.inventory.push(I.makeItem(s, { base: "maul" }));
+  actOk(s, { type: "drop", item: s.inventory[s.inventory.length - 1].id });
+  var r = Game.importRun(Game.exportRun(s));
+  assert(r.ok, "save with a dropped item imports: " + r.error);
+  eq(JSON.stringify(r.state), JSON.stringify(s), "round trip is exact");
+  eq(Game.droppedHere(r.state).length, 1);
 });
 
 test("seeds: entered seeds are cleaned; daily seed is the UTC date; daily runs are identical for everyone", function () {
