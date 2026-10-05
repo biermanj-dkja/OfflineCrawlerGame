@@ -1,0 +1,137 @@
+Build a complete, playable single-player local browser game in this repository.
+
+## Delivery constraints — non-negotiable
+
+- The finished game must run by opening `index.html` directly in a modern desktop browser (Chrome/Edge/Firefox) with no web server.
+- It must require no internet connection, no CDN, no external APIs, no login, no analytics, no package install, and no build step to play.
+- Prefer a single self-contained `index.html` with inline CSS and JavaScript. Do not rely on `fetch()` for local assets, since that breaks when opened from disk.
+- Create a short `README.md` explaining how to run it and listing controls.
+- Do not stop at a prototype or architecture plan. Implement the working game now.
+- Do not ask me follow-up questions. Make sensible decisions within this brief.
+- Before finishing, manually test the full loop in-browser or with an equivalent local validation: new game, movement, combat, loot/equipment, leveling, map export/import, victory/death/restart.
+
+## Creative direction
+
+Create an original turn-based fantasy dungeon-crawler inspired by the *feel* of:
+
+- Gauntlet
+- Rift Wizard
+- Diablo I
+- Rogue / Rogue-like dungeon games
+- Archon
+- Wizardry: Proving Grounds of the Mad Overlord
+
+Do not copy their names, characters, maps, dialogue, art, sound, lore, or exact systems. This must be an original game with its own title and identity.
+
+The mood should be dark-fantasy adventure with dry, understated humor. Include rare, subtle 1980s-geek-culture-style references—such as absurd quest instructions, suspiciously familiar tavern names, “a team” mercenary jokes, space-arcade cadet jokes, and bureaucratically holy grail-like artifacts—but do not quote, reproduce, or depend on copyrighted dialogue or characters.
+
+## Visual and interaction style
+
+- Use icon-based, blocky, highly legible graphics: tiles, glyphs, simple pixel-like shapes, emoji only if they improve clarity.
+- Minimal animation only: a brief movement bump, damage flash, projectile step, or short UI transition. No flashy effects or long waits.
+- The game should be immediately readable: player/party, enemies, exits, items, and hazards must all look distinct.
+- Design primarily for keyboard and mouse:
+  - Arrow keys/WASD: move or select direction
+  - Mouse: click visible actions, targets, inventory, and menus
+  - Clear on-screen reminder of controls
+- Keep the interface compact and usable at a normal desktop-browser size without requiring fullscreen.
+
+## Core game loop
+
+The player builds a party of **1 to 3 adventurers**, explores a procedurally generated dungeon, fights turn-based tactical encounters, acquires meaningful equipment and abilities, descends or completes objectives, and reaches a final win condition.
+
+Prioritize a satisfying 20–45 minute run over endless content or a giant world.
+
+### Character creation and party
+
+Provide several clearly distinct classes, such as:
+
+- fighter/guardian: durable melee control
+- rogue/scout: mobility, traps, ranged or precision attacks
+- mage/arcanist: powerful limited-range spells and tactical effects
+- cleric/occultist or a similarly distinct support class
+
+Each class needs:
+- a clear strength and weakness
+- starting stats
+- at least one unique active ability
+- a recognizable progression path
+
+Allow party members to have a simple name generator and optional name editing.
+
+### Turn-based action
+
+- Every meaningful player action advances a turn.
+- Enemies act after the player/party turn in a clear, predictable order.
+- Use grid-based movement and tactical positioning.
+- Support melee, ranged attacks, spells, healing/support, and at least a few status effects or terrain interactions.
+- Show hit results, damage, health, and active effects clearly.
+- The player should make interesting choices, but combat must remain brisk and not require extensive optimization.
+
+### Progression and items
+
+- Characters gain experience and level up during a run.
+- At level-up, offer a small meaningful choice: a spell, skill, passive, stat improvement, or upgrade.
+- Characters can equip straightforward gear, such as weapon, armor, accessory, and/or off-hand.
+- Equipment should be useful and identifiable at a glance. Include a few unusual or build-defining items.
+- Every item occupies exactly one inventory slot.
+- Give the party a fixed, deliberately modest shared inventory capacity, roughly 12–18 slots.
+- Make inventory management fast: simple click-to-equip, compare stats, drop, and discard/replace.
+- No weight limits, hunger, durability, crafting, polishing, repair chores, ammunition bookkeeping, or other maintenance mechanics.
+- No requirement to manually save between floors or perform housekeeping before advancing.
+
+### Procedural generation
+
+- Generate varied dungeon floors from a reproducible seed.
+- Floors should include rooms, corridors, enemies, treasure, occasional hazards or shrines, and a visible progression goal.
+- Include several distinct floor themes or encounter flavors, even if the tiles are simple.
+- The game should always generate solvable layouts with a reachable objective/exit.
+- Show the current seed in the UI.
+
+### Map/run sharing
+
+Implement export and import of a run/map as human-readable JSON.
+
+- “Export” should download a JSON file containing the seed and all data needed to restore the current run/map state.
+- “Import” should let the player choose that JSON file and resume it locally.
+- Do not use a server.
+- Also autosave the current run locally using `localStorage` or IndexedDB, with a clear “Continue” option and “New Game” option.
+- A player must be able to share the exported file with another person, who can import and play the same run offline.
+
+### Story and structure
+
+Use light procedural narrative rather than long fixed prose:
+
+- Generate a short mission premise, dungeon name, antagonist/title, and a few optional events or notes.
+- Keep writing brief, flavorful, and replayable.
+- The game needs a concrete final objective and an achievable win state, plus a clear defeat state.
+- Include a small end-of-run summary.
+
+## Quality bar
+
+This should feel like a small finished game, not a demo. Build the simplest version that has depth through strong interactions rather than lots of menus or content.
+
+Include:
+- title screen with New Game, Continue, Import Run, and controls
+- party creation
+- procedural dungeon generation
+- multiple enemy types with distinct behaviors
+- tactical combat
+- equipment and fixed-slot inventory
+- level-up choices
+- local autosave
+- JSON export/import
+- victory and defeat screens
+- helpful tooltips or a compact in-game help panel
+- defensive handling for bad import files, full inventory, invalid moves, and dead party members
+
+Avoid:
+- multiplayer
+- account systems
+- cloud saving
+- external dependencies
+- complicated crafting/economy systems
+- excessive menus
+- placeholder buttons or unfinished systems
+
+Use clean, readable, well-commented code. If time or complexity forces a choice, favor a complete, polished core loop over more classes, more floors, or more visual effects.
